@@ -63,7 +63,14 @@ export class TCPService {
       throw new Error("封包发送失败");
     }
 
-    return await receivePromise;
+    const receivedData = await receivePromise;
+    if (!receivedData) {
+      return null;
+    }
+    // 截取 body 部分（去掉前 17 字节头部）
+    const body = receivedData.subarray(17);
+
+    return body;
   }
 }
 
