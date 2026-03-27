@@ -20,12 +20,17 @@ export class ReceivePacketAnalysis extends EventEmitter {
   private buffer: Buffer = Buffer.alloc(0);
   private running: boolean = true;
 
+  private logFullPacket: boolean;
+  private ignoredCmdIds: Set<number>;
+
   constructor(
     algorithms: Algorithms,
     tcpSocket: net.Socket,
     userid: number,
     messageCallback?: (msg: string) => void,
-    disconnectCallback?: () => Promise<void> | void
+    disconnectCallback?: () => Promise<void> | void,
+    logFullPacket: boolean = false,
+    ignoredCmdIds: number[] = [8002, 3452, 2004, 2001, 41228, 1002, 2002]
   ) {
     super();
     this.algorithms = algorithms;
@@ -33,6 +38,9 @@ export class ReceivePacketAnalysis extends EventEmitter {
     this.userid = userid;
     this.messageCallback = messageCallback;
     this.disconnectCallback = disconnectCallback;
+
+    this.logFullPacket = logFullPacket;
+    this.ignoredCmdIds = new Set(ignoredCmdIds);
 
     this._loadCommandDict();
     this._setupSocketListeners();
@@ -113,8 +121,17 @@ export class ReceivePacketAnalysis extends EventEmitter {
         const commandStr =
           this.commandDict[commandValue.toString()] || "Unknown Command";
 
-        if (this.messageCallback) {
-          this.messageCallback(`接收|${commandStr}|${cipher}`);
+        if (this.messageCallback && !this.ignoredCmdIds.has(commandValue)) {
+          if (this.logFullPacket) {
+            const cipher = packetData.toString("hex").toUpperCase();
+            this.messageCallback(
+              `接收|[${commandValue}] ${commandStr}|${cipher}`
+            );
+          } else {
+            this.messageCallback(
+              `接收|[${commandValue}] ${commandStr}|length:${packetLength}`
+            );
+          }
         }
 
         // 检查是否为正在等待的封包

@@ -57,7 +57,9 @@ export class TCPService {
       () => {
         console.log("【系统提示】网络连接已断开，准备重连...");
         this._scheduleReconnect();
-      }
+      },
+      settings.log_full_packet,
+      settings.ignored_cmd_ids
     );
 
     // 等待 1001 密钥初始化封包处理完毕
