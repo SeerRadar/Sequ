@@ -1,115 +1,90 @@
-import express from "express";
+import express, { Request, Response } from "express";
 import { tcpService } from "./tcpService";
 import { PacketBuilder } from "../utils/pkgBuilder";
 import { BufferReader } from "../utils/reader";
+import {
+  isValidAccount,
+  getInvalidAccountRes,
+  toHexStr,
+} from "../utils/httpUtil";
 
 const app: express.Application = express();
 app.use(express.json());
 
 // 查询用户在线状态
-app.get("/api/getUserOnlineStatus", async (req, res) => {
+app.get("/api/getUserOnlineStatus", async (req: Request, res: Response) => {
   const account = Number(req.query.account);
 
-  if (!account || account < 50000 || account > 2000000000) {
-    return res.status(400).json({
-      success: false,
-      message: "数据返回失败",
-      data: {
-        account: String(account || ""),
-        error: "请输入正确的米米号, 从50000开始，2000000000封顶",
-      },
-    });
+  if (!isValidAccount(account)) {
+    return res.status(400).json(getInvalidAccountRes(account));
   }
 
   try {
-    const queryPacket2052 = new PacketBuilder()
-      .setCmdId(2052)
-      .addU32(account)
-      .build();
+    // 获取昵称信息
+    const pkt2052 = new PacketBuilder().setCmdId(2052).addU32(account).build();
+    const res2052 = await tcpService.sendAndReceive(2052, pkt2052);
 
-    const response2052 = await tcpService.sendAndReceive(2052, queryPacket2052);
-
-    if (!response2052 || response2052.length <= 39) {
+    if (!res2052 || res2052.length <= 39) {
       return res.status(404).json({
         success: false,
         message: "数据返回失败",
-        data: {
-          account: String(account),
-          error: "该米米号的信息不存在",
-        },
+        data: { account: String(account), error: "该米米号的信息不存在" },
       });
     }
 
-    // 解析昵称
-    const reader = new BufferReader(response2052);
-    reader.skip(4);
-    const nickName = reader.readString(16);
+    const reader2052 = new BufferReader(res2052);
+    reader2052.skip(4);
+    const nickName = reader2052.readString(16);
 
-    const queryPacket2157 = new PacketBuilder()
+    // 获取在线状态
+    const pkt2157 = new PacketBuilder()
       .setCmdId(2157)
       .addU32(1)
       .addU32(account)
       .build();
-
-    const response2157 = await tcpService.sendAndReceive(2157, queryPacket2157);
+    const res2157 = await tcpService.sendAndReceive(2157, pkt2157);
 
     let isOnline = false;
     let server = "";
 
-    if (response2157 && response2157.length >= 12) {
-      const reader = new BufferReader(response2157);
-      isOnline = reader.readUInt32() === 1;
-      reader.skip(4);
-      server = String(reader.readUInt32());
-    }
-
-    const responseData: any = {
-      account: String(account),
-      nickName: nickName,
-      online: isOnline,
-    };
-
-    if (isOnline) {
-      responseData.server = server;
+    if (res2157 && res2157.length >= 12) {
+      const reader2157 = new BufferReader(res2157);
+      isOnline = reader2157.readUInt32() === 1;
+      reader2157.skip(4);
+      server = String(reader2157.readUInt32());
     }
 
     return res.json({
       success: true,
       message: "数据返回成功",
-      data: responseData,
+      data: {
+        account: String(account),
+        nickName,
+        online: isOnline,
+        ...(isOnline ? { server } : {}),
+      },
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
       message: "数据返回失败",
-      data: {
-        account: String(account),
-        error: (error as Error).message,
-      },
+      data: { account: String(account), error: (error as Error).message },
     });
   }
 });
 
-// 获取米米号信息
-app.get("/api/getUserInfo", async (req, res) => {
+// 获取米米号详细信息
+app.get("/api/getUserInfo", async (req: Request, res: Response) => {
   const account = Number(req.query.account);
 
-  if (!account || account < 50000 || account > 2000000000) {
-    return res.status(400).json({
-      success: false,
-      message: "数据返回失败",
-      status: 1,
-      data: {
-        account: String(account || ""),
-        error: "请输入正确的米米号, 从50000开始，2000000000封顶",
-      },
-    });
+  if (!isValidAccount(account)) {
+    return res.status(400).json(getInvalidAccountRes(account, true));
   }
 
   try {
     const responseData: any = { account: String(account) };
 
-    // 详细信息
+    // 详细信息 昵称
     const pkt2052 = new PacketBuilder().setCmdId(2052).addU32(account).build();
     const res2052 = await tcpService.sendAndReceive(2052, pkt2052);
 
@@ -118,18 +93,14 @@ app.get("/api/getUserInfo", async (req, res) => {
         success: false,
         message: "数据返回失败",
         status: 1,
-        data: {
-          account: String(account),
-          error: "该米米号的信息不存在",
-        },
+        data: { account: String(account), error: "该米米号的信息不存在" },
       });
     }
 
-    // 昵称
     const reader2052 = new BufferReader(res2052);
     reader2052.skip(4);
     responseData.nickName = reader2052.readString(16);
-    responseData.hexDataMore = res2052.toString("hex").toUpperCase();
+    responseData.hexDataMore = toHexStr(res2052);
 
     // 在线状态
     const pkt2157 = new PacketBuilder()
@@ -139,27 +110,22 @@ app.get("/api/getUserInfo", async (req, res) => {
       .build();
     const res2157 = await tcpService.sendAndReceive(2157, pkt2157);
 
-    let isOnline = false;
+    responseData.online = false;
     if (res2157 && res2157.length >= 12) {
       const reader2157 = new BufferReader(res2157);
-      isOnline = reader2157.readUInt32() === 1;
+      const isOnline = reader2157.readUInt32() === 1;
       reader2157.skip(4);
       const serverId = reader2157.readUInt32();
 
       responseData.online = isOnline;
-      if (isOnline) {
-        responseData.server = String(serverId);
-      }
-    } else {
-      responseData.online = false;
+      if (isOnline) responseData.server = String(serverId);
     }
 
     // 简单信息
     const pkt2051 = new PacketBuilder().setCmdId(2051).addU32(account).build();
-    const res2051 = await tcpService.sendAndReceive(2051, pkt2051);
-    responseData.hexDataSimple = res2051
-      ? res2051.toString("hex").toUpperCase()
-      : "";
+    responseData.hexDataSimple = toHexStr(
+      await tcpService.sendAndReceive(2051, pkt2051)
+    );
 
     // 成就 精灵种类 皮肤 称号
     const pkt41298_1 = new PacketBuilder()
@@ -169,12 +135,11 @@ app.get("/api/getUserInfo", async (req, res) => {
       .addU32(0)
       .addU32(0)
       .build();
-    const res41298_1 = await tcpService.sendAndReceive(41298, pkt41298_1);
-    responseData.hexDataPrat1 = res41298_1
-      ? res41298_1.toString("hex").toUpperCase()
-      : "";
+    responseData.hexDataPrat1 = toHexStr(
+      await tcpService.sendAndReceive(41298, pkt41298_1)
+    );
 
-    // u端卡片展示的精灵
+    // U端卡片展示的精灵
     const pkt41298_5 = new PacketBuilder()
       .setCmdId(41298)
       .addU32(5)
@@ -182,10 +147,9 @@ app.get("/api/getUserInfo", async (req, res) => {
       .addU32(0)
       .addU32(0)
       .build();
-    const res41298_5 = await tcpService.sendAndReceive(41298, pkt41298_5);
-    responseData.hexDataPrat2 = res41298_5
-      ? res41298_5.toString("hex").toUpperCase()
-      : "";
+    responseData.hexDataPrat2 = toHexStr(
+      await tcpService.sendAndReceive(41298, pkt41298_5)
+    );
 
     // 巅峰信息
     const peakParams = [
@@ -204,7 +168,6 @@ app.get("/api/getUserInfo", async (req, res) => {
     ];
 
     let hexDataPeak = "";
-
     for (const param of peakParams) {
       const pkt40002 = new PacketBuilder()
         .setCmdId(40002)
@@ -212,9 +175,8 @@ app.get("/api/getUserInfo", async (req, res) => {
         .addU32(param)
         .build();
       const res40002 = await tcpService.sendAndReceive(40002, pkt40002);
-      if (res40002) {
-        hexDataPeak += res40002.toString("hex").toUpperCase();
-      }
+      hexDataPeak += toHexStr(res40002);
+      await new Promise((resolve) => setTimeout(resolve, 5));
     }
     responseData.hexDataPeak = hexDataPeak;
 
@@ -229,55 +191,40 @@ app.get("/api/getUserInfo", async (req, res) => {
       success: false,
       message: "数据返回失败",
       status: 1,
-      data: {
-        account: String(account),
-        error: (error as Error).message,
-      },
+      data: { account: String(account), error: (error as Error).message },
     });
   }
 });
 
 // 获取战队信息
-app.get("/api/getTeamInfo", async (req, res) => {
-  const cmdId = 2917;
+app.get("/api/getTeamInfo", async (req: Request, res: Response) => {
   const teamId = Number(req.query.teamId);
 
   try {
-    const queryPacketHex = new PacketBuilder()
-      .setCmdId(cmdId)
-      .addU32(teamId)
-      .build();
+    const pkt2917 = new PacketBuilder().setCmdId(2917).addU32(teamId).build();
+    const res2917 = await tcpService.sendAndReceive(2917, pkt2917);
 
-    const responseBuffer = await tcpService.sendAndReceive(
-      cmdId,
-      queryPacketHex
-    );
-
-    if (responseBuffer && responseBuffer.length > 0) {
-      res.json({
+    if (res2917 && res2917.length > 0) {
+      return res.json({
         success: true,
         message: "获取成功",
         data: {
           teamId: String(teamId),
-          hexDataTeam: responseBuffer.toString("hex").toUpperCase(),
-        },
-      });
-    } else {
-      res.json({
-        success: true,
-        message: "数据返回失败",
-        data: {
-          error: "该战队号的信息不存在",
+          hexDataTeam: toHexStr(res2917),
         },
       });
     }
-  } catch (error) {
-    res.json({
+
+    return res.json({
       success: true,
       message: "数据返回失败",
-      data: {
-        error: (error as Error).message,
-      },
+      data: { error: "该战队号的信息不存在" },
+    });
+  } catch (error) {
+    return res.json({
+      success: true,
+      message: "数据返回失败",
+      data: { error: (error as Error).message },
     });
   }
 });
