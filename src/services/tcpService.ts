@@ -4,7 +4,7 @@ import { ReceivePacketAnalysis } from "../pkg/receive";
 import { Algorithms } from "../core/encrypt";
 import { Login } from "../core/login";
 import { settings } from "../config/config";
-import { getSeerServerInfo } from "../utils/fetchData";
+import { getUnityNoticeInfo, parseUnityNotice } from "../utils/fetchData";
 import { PacketBuilder } from "../utils/pkgBuilder";
 
 const RECONNECT_BASE_DELAY_MS = 2000;
@@ -136,37 +136,34 @@ export class TCPService {
   }
 
   /**
-   * 重连循环（结合服务器状态检查和指数退避）
+   * 重连循环
    */
   private async _reconnectLoop(): Promise<void> {
-    while (true) {
-      const serverInfo = await getSeerServerInfo();
-      if (serverInfo.status === "未开服") {
-        console.warn(
-          `【重连】服务器未开服，等待 ${
-            SERVER_CHECK_INTERVAL_MS / 1000
-          }s 后再次检查...`
-        );
-        await new Promise((resolve) =>
-          setTimeout(resolve, SERVER_CHECK_INTERVAL_MS)
-        );
-        continue;
-      }
-
-      this.reconnectAttempts++;
-      const delay = Math.min(
-        RECONNECT_BASE_DELAY_MS * Math.pow(2, this.reconnectAttempts - 1),
-        RECONNECT_MAX_DELAY_MS
-      );
-
-      console.log(
-        `【重连】第 ${this.reconnectAttempts} 次重连尝试，等待 ${
-          delay / 1000
-        }s...`
-      );
-      await new Promise((resolve) => setTimeout(resolve, delay));
-
+    while (this.isReconnecting) {
       try {
+        let isMaintenance = false;
+        try {
+          const noticeList = await getUnityNoticeInfo();
+          const result = parseUnityNotice(noticeList);
+          isMaintenance = result.status === "维护";
+        } catch (httpError) {
+          console.warn(`【重连】获取公告失败: ${(httpError as Error).message}`);
+        }
+
+        if (isMaintenance) {
+          console.warn(
+            `【重连】服务器维护中，等待 ${
+              SERVER_CHECK_INTERVAL_MS / 1000
+            }s 后再次检查...`
+          );
+          this.reconnectAttempts = 0;
+          await new Promise((resolve) =>
+            setTimeout(resolve, SERVER_CHECK_INTERVAL_MS)
+          );
+          continue;
+        }
+
+        this.reconnectAttempts++;
         await this._doConnect();
 
         this.reconnectAttempts = 0;
@@ -174,10 +171,18 @@ export class TCPService {
         console.log("【重连】重连成功！");
         return;
       } catch (error) {
-        console.error(
-          `【重连】第 ${this.reconnectAttempts} 次重连失败:`,
-          (error as Error).message
+        const delay = Math.min(
+          RECONNECT_BASE_DELAY_MS * Math.pow(2, this.reconnectAttempts - 1),
+          RECONNECT_MAX_DELAY_MS
         );
+
+        console.error(
+          `【重连】第 ${this.reconnectAttempts} 次重连失败: ${
+            (error as Error).message
+          }`
+        );
+        console.log(`【重连】等待 ${delay / 1000}s 后进行下一次尝试...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }

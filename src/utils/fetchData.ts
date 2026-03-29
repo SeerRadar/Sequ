@@ -1,43 +1,29 @@
 import axios from "axios";
 
-async function getSeerServerInfo(
-  url: string = "https://seerh5login.61.com/seer_notice"
-): Promise<{ status: string; info: any }> {
-  try {
-    const { data } = await axios.get(url + `?t=${Date.now()}`);
-
-    let jsonData = data;
-    if (typeof data === "string") {
-      try {
-        jsonData = JSON.parse(data);
-      } catch (parseError) {
-        console.error("Failed to parse data:", parseError);
-        return { status: "错误", info: "数据解析失败" };
-      }
-    }
-
-    // jsonData 是否为空对象
-    if (
-      typeof jsonData === "object" &&
-      jsonData !== null &&
-      Object.keys(jsonData).length === 0
-    ) {
-      return { status: "开服", info: jsonData };
-    }
-
-    // jsonData 是否为数组且第一个元素的 type 为 1
-    if (
-      Array.isArray(jsonData) &&
-      jsonData.length > 0 &&
-      jsonData[0].type === 1
-    ) {
-      return { status: "开服", info: jsonData };
-    } else {
-      return { status: "未开服", info: null };
-    }
-  } catch (error) {
-    return { status: "错误", info: "请求失败" };
+async function getUnityNoticeInfo(
+  url: string = "http://unity-notice.61.com/unity_notice/"
+) {
+  const { data } = await axios.get(url + `?t=${Date.now()}`);
+  if (!Array.isArray(data)) {
+    throw new Error("notice 数据格式错误");
   }
+  return data;
 }
 
-export { getSeerServerInfo };
+function parseUnityNotice(noticeList: any[]) {
+  const maintenanceNotice = noticeList.find((n) => n.type === 3);
+
+  if (maintenanceNotice) {
+    return {
+      status: "维护",
+      info: maintenanceNotice.text || "当前有维护公告，但未提供具体信息",
+    };
+  }
+
+  return {
+    status: "开服",
+    info: "当前unity已开服",
+  };
+}
+
+export { getUnityNoticeInfo, parseUnityNotice };
