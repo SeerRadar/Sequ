@@ -12,9 +12,8 @@ export class ReceivePacketAnalysis extends EventEmitter {
   private disconnectCallback?: () => Promise<void> | void;
 
   private commandDict: Record<string, string> = {};
-  private currentCommandId: number | null = null;
-  private packetData: Buffer | null = null;
-  private dataReadyResolve: ((value: Buffer | null) => void) | null = null;
+  private waiters: Map<number, Array<(value: Buffer | null) => void>> =
+    new Map();
 
   private buffer: Buffer = Buffer.alloc(0);
   private running: boolean = true;
@@ -130,13 +129,13 @@ export class ReceivePacketAnalysis extends EventEmitter {
           }
         }
 
-        // 检查是否为正在等待的封包
-        if (commandValue === this.currentCommandId) {
-          this.packetData = packetData;
-          if (this.dataReadyResolve) {
-            this.dataReadyResolve(packetData);
-            this.dataReadyResolve = null;
-          }
+        // 检查是否有等待该命令的 waiter（取队列中第一个）
+        const queue = this.waiters.get(commandValue);
+        if (queue && queue.length > 0) {
+          const resolve = queue[0];
+          queue.shift();
+          if (queue.length === 0) this.waiters.delete(commandValue);
+          resolve(packetData);
         }
 
         // 1001 命令处理 (密钥初始化)
@@ -181,39 +180,39 @@ export class ReceivePacketAnalysis extends EventEmitter {
     commandId: number,
     timeout: number = 5000
   ): Promise<Buffer | null> {
-    this.currentCommandId = commandId;
-    this.packetData = null;
-
     return new Promise((resolve) => {
-      this.dataReadyResolve = resolve;
+      const wrappedResolve = (val: Buffer | null) => {
+        clearTimeout(timer);
+        resolve(val);
+      };
 
-      // 设置超时定时器
       const timer = setTimeout(() => {
-        if (this.currentCommandId === commandId) {
-          if (this.messageCallback) {
-            this.messageCallback(`等待|超时|命令 ${commandId} 响应超时`);
-          }
-          this.currentCommandId = null;
-          this.dataReadyResolve = null;
-          resolve(null);
+        const queue = this.waiters.get(commandId);
+        if (queue) {
+          const idx = queue.indexOf(wrappedResolve);
+          if (idx !== -1) queue.splice(idx, 1);
+          if (queue.length === 0) this.waiters.delete(commandId);
         }
+        if (this.messageCallback) {
+          this.messageCallback(`等待|超时|命令 ${commandId} 响应超时`);
+        }
+        resolve(null);
       }, timeout);
 
-      // 包装原始的 resolve 以清除定时器
-      const originalResolve = this.dataReadyResolve;
-      this.dataReadyResolve = (val: Buffer | null) => {
-        clearTimeout(timer);
-        this.currentCommandId = null;
-        if (originalResolve) originalResolve(val);
-      };
+      if (!this.waiters.has(commandId)) {
+        this.waiters.set(commandId, []);
+      }
+      this.waiters.get(commandId)!.push(wrappedResolve);
     });
   }
 
   stop(): void {
     this.running = false;
-    if (this.dataReadyResolve) {
-      this.dataReadyResolve(null);
-      this.dataReadyResolve = null;
+    for (const queue of this.waiters.values()) {
+      for (const resolve of queue) {
+        resolve(null);
+      }
     }
+    this.waiters.clear();
   }
 }
