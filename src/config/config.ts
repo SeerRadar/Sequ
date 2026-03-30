@@ -9,6 +9,7 @@ interface Settings {
   service_account_id: number;
   service_account_password: string;
 
+  http_port: number;
   log_full_packet: boolean;
   ignored_cmd_ids: number[];
 }
@@ -57,6 +58,7 @@ export const settings: Settings = {
   service_account_id: getEnvNumber("SERVICE_ACCOUNT_ID", 0),
   service_account_password: getEnvString("SERVICE_ACCOUNT_PASSWORD", ""),
 
+  http_port: getEnvNumber("PORT", 3000, 1, 65535),
   log_full_packet: getEnvBoolean("LOG_FULL_PACKET", false),
   ignored_cmd_ids: getEnvNumberArray(
     "IGNORED_CMD_IDS",
