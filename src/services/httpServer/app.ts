@@ -11,7 +11,9 @@ app.use(express.json());
 // 请求日志中间件
 app.use((req: Request, _res: Response, next: NextFunction) => {
   console.log(
-    `[${dayjs().format("YYYY-MM-DD HH:mm:ss")}] ${req.method} ${req.originalUrl}`
+    `[${dayjs().format("YYYY-MM-DD HH:mm:ss")}] ${req.method} ${
+      req.originalUrl
+    }`
   );
   next();
 });
@@ -24,4 +26,3 @@ app.use((_req: Request, res: Response) => {
 });
 
 export { app };
-

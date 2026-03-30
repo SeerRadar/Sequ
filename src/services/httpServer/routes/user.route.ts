@@ -12,4 +12,3 @@ router.get("/getUserInfo", getUserInfo);
 router.get("/getTeamInfo", getTeamInfo);
 
 export default router;
-
