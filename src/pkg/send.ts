@@ -46,7 +46,6 @@ export class SendPacketProcessing {
       this.result = packet.slice(13, 17);
       this.body = packet.slice(17);
 
-      // 使用格式化工具打印调试信息
       if (process.env.DEBUG_PACKET === "true") {
         console.log("=== 数据包解析 ===");
         console.log(
@@ -87,17 +86,14 @@ export class SendPacketProcessing {
    */
   groupPacket(packet: string): Buffer | null {
     try {
-      // 移除可能的空格和换行符
       packet = packet.replace(/\s+/g, "");
 
-      // 验证十六进制格式
       if (!/^[0-9A-Fa-f]+$/.test(packet)) {
         throw new Error("包含非十六进制字符");
       }
 
       const packetBytes = Buffer.from(packet, "hex");
 
-      // 解析数据包各个字段
       this.parsePacket(packetBytes);
 
       if (
@@ -115,7 +111,7 @@ export class SendPacketProcessing {
         this.body
       );
 
-      // 将Result值转换为4字节Buffer（使用大端序）
+      // 将Result值转换为4字节Buffer
       const resultBuffer = Buffer.allocUnsafe(4);
       resultBuffer.writeUInt32BE(resultValue, 0);
 
