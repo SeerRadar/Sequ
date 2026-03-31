@@ -184,7 +184,6 @@ export class SendPacketProcessing {
     expectedCmdId?: number,
     timeout: number = 5000
   ): Promise<Buffer | null> {
-    // 只组装一次，避免 calculateResult 被重复调用
     const assembledPacket = this.groupPacket(packedMessage);
     if (!assembledPacket) return null;
 
@@ -196,12 +195,7 @@ export class SendPacketProcessing {
 
     const receivePromise = receiver.waitForSpecificData(waitCmdId, timeout);
 
-    try {
-      await this.writeToSocket(assembledPacket);
-    } catch (error) {
-      // 写入失败时直接抛出，接收方注册的 waiter 将在超时后自动清理
-      throw error;
-    }
+    await this.writeToSocket(assembledPacket);
 
     return receivePromise;
   }
