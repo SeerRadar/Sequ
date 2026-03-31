@@ -109,8 +109,6 @@ export class ReceivePacketAnalysis extends EventEmitter {
         const packetData = this.buffer.slice(0, packetLength);
         this.buffer = this.buffer.slice(packetLength);
 
-        const cipher = packetData.toString("hex").toUpperCase();
-
         // 提取命令 ID (offset 5, 长度 4 字节, 大端序)
         const commandValue = packetData.readUInt32BE(5);
         const commandStr =

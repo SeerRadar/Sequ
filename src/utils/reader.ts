@@ -36,7 +36,8 @@ class BufferReader {
     const end = this._offset + length;
     const strBuffer = this.buffer.slice(this._offset, end);
     this._offset = end;
-    return strBuffer.toString("utf8").replace(/\0/g, "");
+    // eslint-disable-next-line no-control-regex
+    return strBuffer.toString("utf8").replace(/\u0000/g, "");
   }
 
   skip(bytes: number): void {
@@ -84,7 +85,7 @@ class BufferReader {
   safeRead<T>(readFn: () => T, defaultValue: T): T {
     try {
       return readFn();
-    } catch (error) {
+    } catch {
       return defaultValue;
     }
   }

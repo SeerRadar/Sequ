@@ -84,7 +84,7 @@ export class Login {
 
     try {
       return Buffer.from(session, "hex");
-    } catch (exc) {
+    } catch {
       throw new Error("session 格式错误");
     }
   }
