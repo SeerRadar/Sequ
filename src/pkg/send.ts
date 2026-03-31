@@ -1,6 +1,7 @@
 import { Algorithms } from "../core/encrypt";
 import net from "net";
 import { HexFormatter } from "../utils/format";
+import CommandData from "../config/Command.json";
 
 type MessageCallback = (message: string) => void;
 
@@ -19,6 +20,8 @@ export class SendPacketProcessing {
   private result: Buffer | null = null;
   private body: Buffer | null = null;
 
+  private commandDict: Record<string, string> = {};
+
   constructor(
     algorithms: Algorithms,
     writer: net.Socket,
@@ -32,6 +35,19 @@ export class SendPacketProcessing {
     // 将用户ID转换为4字节大端序Buffer
     this.userId = Buffer.allocUnsafe(4);
     this.userId.writeUInt32BE(userid, 0);
+
+    try {
+      const parsed: Record<string, any> = CommandData;
+      for (const key in parsed) {
+        this.commandDict[key] = Array.isArray(parsed[key])
+          ? parsed[key][0]
+          : parsed[key];
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        console.error("Command.json 文件不存在");
+      }
+    }
   }
 
   /**
@@ -149,9 +165,15 @@ export class SendPacketProcessing {
         return false;
       }
 
-      if (this.messageCallback) {
+      if (this.messageCallback && this.cmdId) {
+        const commandValue = this.cmdId.readUInt32BE(0);
+        const commandStr =
+          this.commandDict[commandValue.toString()] || "Unknown Command";
+
         this.messageCallback(
-          `发送|未加密|${assembledPacket.toString("hex").toUpperCase()}`
+          `发送|[${commandValue}] ${commandStr}|${assembledPacket
+            .toString("hex")
+            .toUpperCase()}`
         );
       }
 
