@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "tsc && node dist/index.js",
-    "dev": "ts-node src/index.ts",
+    "dev": "tsx src/index.ts",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix"
   },
@@ -18,7 +18,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "oxlint": "^1.58.0",
-    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.2"
   },
   "dependencies": {
