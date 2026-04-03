@@ -9,7 +9,7 @@ import { PacketBuilder } from "../utils/pkgBuilder";
 
 const RECONNECT_BASE_DELAY_MS = 2000;
 const RECONNECT_MAX_DELAY_MS = 30000;
-const SERVER_CHECK_INTERVAL_MS = 30000;
+const SERVER_CHECK_INTERVAL_MS = 60000;
 const KEY_INIT_DELAY_MS = 5000;
 const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -25,7 +25,15 @@ export class TCPService {
    * 初始化 TCP 连接并完成登录和密钥交换
    */
   async init(): Promise<void> {
-    await this._doConnect();
+    try {
+      await this._doConnect();
+    } catch (error) {
+      console.error(
+        `初始化连接失败: ${(error as Error).message}，准备进入重连流程...`,
+      );
+      this._scheduleReconnect();
+      await this._waitUntilReady();
+    }
   }
 
   /**
@@ -39,7 +47,7 @@ export class TCPService {
 
     const { reader, writer } = await login.login(
       settings.service_account_id,
-      settings.service_account_password
+      settings.service_account_password,
     );
 
     const msgCallback = settings.log_callbacks
@@ -51,7 +59,7 @@ export class TCPService {
       algorithms,
       writer,
       settings.service_account_id,
-      msgCallback
+      msgCallback,
     );
 
     this.receiver = new ReceivePacketAnalysis(
@@ -64,7 +72,7 @@ export class TCPService {
         this._scheduleReconnect();
       },
       settings.log_full_packet,
-      settings.ignored_cmd_ids
+      settings.ignored_cmd_ids,
     );
 
     // 等待 1001 密钥初始化封包处理完毕
@@ -95,12 +103,12 @@ export class TCPService {
 
         await this.sendAndReceive(2157, pkt2157);
         console.log(
-          `[${dayjs().format("YYYY-MM-DD HH:mm:ss")}] 【心跳】2157 保持连接成功`
+          `[${dayjs().format("YYYY-MM-DD HH:mm:ss")}] 【心跳】2157 保持连接成功`,
         );
       } catch (error) {
         console.error(
           `[${dayjs().format("YYYY-MM-DD HH:mm:ss")}] 【心跳】发送心跳包失败:`,
-          (error as Error).message
+          (error as Error).message,
         );
       }
     }, HEARTBEAT_INTERVAL_MS);
@@ -159,16 +167,24 @@ export class TCPService {
           console.warn(
             `【重连】服务器维护中，等待 ${
               SERVER_CHECK_INTERVAL_MS / 1000
-            }s 后再次检查...`
+            }s 后再次检查...`,
           );
           this.reconnectAttempts = 0;
           await new Promise((resolve) =>
-            setTimeout(resolve, SERVER_CHECK_INTERVAL_MS)
+            setTimeout(resolve, SERVER_CHECK_INTERVAL_MS),
           );
           continue;
         }
 
         this.reconnectAttempts++;
+
+        // 重连前清理旧资源
+        if (this.receiver) {
+          this.receiver.stop();
+          this.receiver = null;
+        }
+        this.sender = null;
+
         await this._doConnect();
 
         this.reconnectAttempts = 0;
@@ -179,13 +195,13 @@ export class TCPService {
       } catch (error) {
         const delay = Math.min(
           RECONNECT_BASE_DELAY_MS * Math.pow(2, this.reconnectAttempts - 1),
-          RECONNECT_MAX_DELAY_MS
+          RECONNECT_MAX_DELAY_MS,
         );
 
         console.error(
           `【重连】第 ${this.reconnectAttempts} 次重连失败: ${
             (error as Error).message
-          }`
+          }`,
         );
         console.log(`【重连】等待 ${delay / 1000}s 后进行下一次尝试...`);
         await new Promise((resolve) => setTimeout(resolve, delay));
@@ -209,7 +225,7 @@ export class TCPService {
   async sendAndReceive(
     cmdId: number,
     hexPacket: string,
-    timeout = 5000
+    timeout = 5000,
   ): Promise<Buffer | null> {
     if (!this.isReady || !this.sender || !this.receiver) {
       this._scheduleReconnect();
@@ -220,7 +236,9 @@ export class TCPService {
     }
 
     const receivePromise = this.receiver.waitForSpecificData(cmdId, timeout);
-    const sendSuccess = await this.sender.sendPacket(hexPacket);
+
+    let sendSuccess: boolean;
+    sendSuccess = await this.sender.sendPacket(hexPacket);
 
     if (!sendSuccess) {
       throw new Error("封包发送失败");
@@ -232,6 +250,27 @@ export class TCPService {
     }
     // 截取 body 部分（去掉前 17 字节头部）
     return receivedData.subarray(17);
+  }
+
+  /**
+   * 关闭服务
+   */
+  shutdown(): void {
+    this.isReconnecting = false;
+    this.isReady = false;
+    this._stopHeartbeat();
+
+    if (this.receiver) {
+      this.receiver.stop();
+      this.receiver = null;
+    }
+    this.sender = null;
+
+    // 通知所有等待中的调用方
+    const waiters = this.readyWaiters.splice(0);
+    for (const resolve of waiters) resolve();
+
+    console.log("TCP 服务已关闭");
   }
 }
 

@@ -50,7 +50,7 @@ async function fetchOnlineStatus(account: number): Promise<OnlineResult> {
 // 查询用户在线状态
 export async function getUserOnlineStatus(
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> {
   const account = Number(req.query.account);
 
@@ -130,7 +130,7 @@ export async function getUserInfo(req: Request, res: Response): Promise<void> {
       .addU32(0)
       .build();
     const hexDataPrat1 = toHexStr(
-      await tcpService.sendAndReceive(41298, pkt41298_1)
+      await tcpService.sendAndReceive(41298, pkt41298_1),
     );
 
     const pkt41298_5 = new PacketBuilder()
@@ -141,7 +141,7 @@ export async function getUserInfo(req: Request, res: Response): Promise<void> {
       .addU32(0)
       .build();
     const hexDataPrat2 = toHexStr(
-      await tcpService.sendAndReceive(41298, pkt41298_5)
+      await tcpService.sendAndReceive(41298, pkt41298_5),
     );
 
     // 巅峰信息

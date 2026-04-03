@@ -24,7 +24,7 @@ export class SendPacketProcessing {
     algorithms: Algorithms,
     writer: net.Socket,
     userid: number,
-    messageCallback?: MessageCallback
+    messageCallback?: MessageCallback,
   ) {
     this.algorithms = algorithms;
     this.writer = writer;
@@ -40,40 +40,40 @@ export class SendPacketProcessing {
    */
   parsePacket(packet: Buffer): this {
     if (packet.length >= 17) {
-      this.length = packet.slice(0, 4);
+      this.length = packet.subarray(0, 4);
       this.version = packet[4];
-      this.cmdId = packet.slice(5, 9);
-      this.result = packet.slice(13, 17);
-      this.body = packet.slice(17);
+      this.cmdId = packet.subarray(5, 9);
+      this.result = packet.subarray(13, 17);
+      this.body = packet.subarray(17);
 
       if (process.env.DEBUG_PACKET === "true") {
         console.log("=== 数据包解析 ===");
         console.log(
           `Length: ${this.length.readUInt32BE(0)} (0x${HexFormatter.format08X(
-            this.length.readUInt32BE(0)
-          )})`
+            this.length.readUInt32BE(0),
+          )})`,
         );
         console.log(
-          `Version: ${this.version} (0x${HexFormatter.format02X(this.version)})`
+          `Version: ${this.version} (0x${HexFormatter.format02X(this.version)})`,
         );
         console.log(
           `CmdId: ${this.cmdId.readUInt32BE(0)} (0x${HexFormatter.format08X(
-            this.cmdId.readUInt32BE(0)
-          )})`
+            this.cmdId.readUInt32BE(0),
+          )})`,
         );
         console.log(
           `UserId: ${this.userId.readUInt32BE(0)} (0x${HexFormatter.format08X(
-            this.userId.readUInt32BE(0)
-          )})`
+            this.userId.readUInt32BE(0),
+          )})`,
         );
         console.log(
           `Result: ${this.result.readUInt32BE(0)} (0x${HexFormatter.format08X(
-            this.result.readUInt32BE(0)
-          )})`
+            this.result.readUInt32BE(0),
+          )})`,
         );
         console.log(`Body: ${this.body.toString("hex").toUpperCase()}`);
         console.log(
-          `Body (formatted): ${HexFormatter.formatBuffer(this.body)}`
+          `Body (formatted): ${HexFormatter.formatBuffer(this.body)}`,
         );
       }
     }
@@ -108,7 +108,7 @@ export class SendPacketProcessing {
       const cmdIdValue = this.cmdId.readUInt32BE(0);
       const resultValue = this.algorithms.calculateResult(
         cmdIdValue,
-        this.body
+        this.body,
       );
 
       // 将Result值转换为4字节Buffer
@@ -153,7 +153,7 @@ export class SendPacketProcessing {
         this.messageCallback(
           `发送|[${commandValue}] ${commandStr}|${assembledPacket
             .toString("hex")
-            .toUpperCase()}`
+            .toUpperCase()}`,
         );
       }
 
@@ -178,7 +178,7 @@ export class SendPacketProcessing {
     packedMessage: string,
     receiver: any,
     expectedCmdId?: number,
-    timeout: number = 5000
+    timeout: number = 5000,
   ): Promise<Buffer | null> {
     const assembledPacket = this.groupPacket(packedMessage);
     if (!assembledPacket) return null;

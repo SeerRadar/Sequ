@@ -16,6 +16,7 @@ export class ReceivePacketAnalysis extends EventEmitter {
 
   private buffer: Buffer = Buffer.alloc(0);
   private running: boolean = true;
+  private disconnectHandled: boolean = false;
 
   private logFullPacket: boolean;
   private ignoredCmdIds: Set<number>;
@@ -27,7 +28,7 @@ export class ReceivePacketAnalysis extends EventEmitter {
     messageCallback?: (msg: string) => void,
     disconnectCallback?: () => Promise<void> | void,
     logFullPacket: boolean = false,
-    ignoredCmdIds: number[] = [8002, 3452, 2004, 2001, 41228, 1002, 2002]
+    ignoredCmdIds: number[] = [8002, 3452, 2004, 2001, 41228, 1002, 2002],
   ) {
     super();
     this.algorithms = algorithms;
@@ -60,7 +61,8 @@ export class ReceivePacketAnalysis extends EventEmitter {
         this.messageCallback(`接收|错误|${error.message}`);
       }
       this.running = false;
-      if (this.disconnectCallback) {
+      if (!this.disconnectHandled && this.disconnectCallback) {
+        this.disconnectHandled = true;
         await this.disconnectCallback();
       }
       this.emit("error", error);
@@ -71,7 +73,8 @@ export class ReceivePacketAnalysis extends EventEmitter {
         this.messageCallback("连接|断开|服务器断开连接");
       }
       this.running = false;
-      if (this.disconnectCallback) {
+      if (!this.disconnectHandled && this.disconnectCallback) {
+        this.disconnectHandled = true;
         await this.disconnectCallback();
       }
       this.emit("close");
@@ -84,13 +87,22 @@ export class ReceivePacketAnalysis extends EventEmitter {
         // 读取封包长度 (大端序, 4字节)
         const packetLength = this.buffer.readUInt32BE(0);
 
+        // 合理性检查：长度至少包含头部(17字节)，且不超过 1MB
+        if (packetLength < 4 || packetLength > 1024 * 1024) {
+          if (this.messageCallback) {
+            this.messageCallback(`接收|错误|异常封包长度: ${packetLength}`);
+          }
+          this.buffer = Buffer.alloc(0);
+          break;
+        }
+
         if (this.buffer.length < packetLength) {
           break; // 数据包不完整，等待下一次 data 事件
         }
 
         // 截取当前封包数据
-        const packetData = this.buffer.slice(0, packetLength);
-        this.buffer = this.buffer.slice(packetLength);
+        const packetData = this.buffer.subarray(0, packetLength);
+        this.buffer = this.buffer.subarray(packetLength);
 
         // 提取命令 ID (offset 5, 长度 4 字节, 大端序)
         const commandValue = packetData.readUInt32BE(5);
@@ -100,11 +112,11 @@ export class ReceivePacketAnalysis extends EventEmitter {
           if (this.logFullPacket) {
             const cipher = packetData.toString("hex").toUpperCase();
             this.messageCallback(
-              `接收|[${commandValue}] ${commandStr}|${cipher}`
+              `接收|[${commandValue}] ${commandStr}|${cipher}`,
             );
           } else {
             this.messageCallback(
-              `接收|[${commandValue}] ${commandStr}|length:${packetLength}`
+              `接收|[${commandValue}] ${commandStr}|length:${packetLength}`,
             );
           }
         }
@@ -158,7 +170,7 @@ export class ReceivePacketAnalysis extends EventEmitter {
    */
   async waitForSpecificData(
     commandId: number,
-    timeout: number = 5000
+    timeout: number = 5000,
   ): Promise<Buffer | null> {
     return new Promise((resolve) => {
       const wrappedResolve = (val: Buffer | null) => {
@@ -188,11 +200,23 @@ export class ReceivePacketAnalysis extends EventEmitter {
 
   stop(): void {
     this.running = false;
+    this.disconnectHandled = true; // 主动停止时不再触发 disconnectCallback
+
+    // 释放所有等待中的 waiter
     for (const queue of this.waiters.values()) {
       for (const resolve of queue) {
         resolve(null);
       }
     }
     this.waiters.clear();
+
+    // 清理 buffer
+    this.buffer = Buffer.alloc(0);
+
+    // 销毁 socket 连接
+    if (this.tcpSocket && !this.tcpSocket.destroyed) {
+      this.tcpSocket.removeAllListeners();
+      this.tcpSocket.destroy();
+    }
   }
 }

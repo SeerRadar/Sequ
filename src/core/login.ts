@@ -6,13 +6,13 @@ import { settings } from "../config/config";
 export class Login {
   async login(
     userid: number | string,
-    password: string
+    password: string,
   ): Promise<{ reader: net.Socket; writer: net.Socket }> {
     const userIdNum = Number(userid);
 
     const sessionBytes = await this.fetchSessionToken(
       userid.toString(),
-      password
+      password,
     );
 
     console.log(`获取 session 成功: ${sessionBytes.toString("hex")}`);
@@ -24,12 +24,28 @@ export class Login {
       const socket = new net.Socket();
 
       await new Promise<void>((resolve, reject) => {
+        const onError = (err: Error) => {
+          clearTimeout(connectTimeout);
+          reject(err);
+        };
+
+        // 连接超时保护 (10秒)
+        const connectTimeout = setTimeout(() => {
+          socket.removeListener("error", onError);
+          socket.destroy();
+          reject(new Error("TCP 连接超时 (10s)"));
+        }, 10000);
+
         socket.connect(
           settings.game_server_port,
           settings.game_server_host,
-          () => resolve()
+          () => {
+            clearTimeout(connectTimeout);
+            socket.removeListener("error", onError);
+            resolve();
+          },
         );
-        socket.on("error", reject);
+        socket.on("error", onError);
       });
 
       const loginPacket = this.LOGIN_IN(useridBytes, sessionBytes);
@@ -108,7 +124,7 @@ export class Login {
 
     const jsonText = responseText.substring(
       openParen + 1,
-      responseText.length - suffix.length
+      responseText.length - suffix.length,
     );
     return JSON.parse(jsonText);
   }
