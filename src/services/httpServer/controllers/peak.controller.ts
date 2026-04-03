@@ -25,9 +25,11 @@ function parseVoteList(voteResult: Buffer): VoteItem[] {
   return voteList;
 }
 
-// 获取投票信息
+// 获取投票信息 voteType: 0 限制级；1 准限制级
 export async function getVoteInfo(req: Request, res: Response): Promise<void> {
   const voteDate = Number(req.query.voteDate);
+  // 0 限制级；1 准限制级
+  const voteType = Number(req.query.voteType) === 1 ? 1 : 0;
   const startIdx = Number(req.query.startIdx ?? 0);
   const endIdx = Number(req.query.endIdx ?? 25);
 
@@ -49,7 +51,7 @@ export async function getVoteInfo(req: Request, res: Response): Promise<void> {
   try {
     const pkt = new PacketBuilder()
       .setCmdId(4481)
-      .addU32(191)
+      .addU32(191 + voteType)
       .addU32(voteDate)
       .addU32(startIdx)
       .addU32(endIdx)
