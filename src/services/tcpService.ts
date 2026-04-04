@@ -10,6 +10,9 @@ import { PacketBuilder } from "../utils/pkgBuilder";
 const RECONNECT_BASE_DELAY_MS = 2000;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const SERVER_CHECK_INTERVAL_MS = 60000;
+const MIDNIGHT_FAST_RETRY_DELAY_MS = 15000;
+const MIDNIGHT_FAST_RETRY_START_HOUR = 0;
+const MIDNIGHT_FAST_RETRY_END_HOUR = 1;
 const KEY_INIT_DELAY_MS = 5000;
 const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -153,12 +156,20 @@ export class TCPService {
    */
   private async _reconnectLoop(): Promise<void> {
     while (this.isReconnecting) {
+      let shouldUseFastRetry = this._isMidnightFastRetryWindow();
+
       try {
         let isMaintenance = false;
         try {
           const noticeList = await getUnityNoticeInfo();
           const result = parseUnityNotice(noticeList);
           isMaintenance = result.status === "维护";
+          shouldUseFastRetry =
+            shouldUseFastRetry || result.status === "疑似短时维护";
+
+          if (result.status === "疑似短时维护") {
+            console.warn(`【重连】${result.info}`);
+          }
         } catch (httpError) {
           console.warn(`【重连】获取公告失败: ${(httpError as Error).message}`);
         }
@@ -193,20 +204,34 @@ export class TCPService {
         this._notifyReady();
         return;
       } catch (error) {
-        const delay = Math.min(
-          RECONNECT_BASE_DELAY_MS * Math.pow(2, this.reconnectAttempts - 1),
-          RECONNECT_MAX_DELAY_MS,
-        );
+        const failedAttempt = this.reconnectAttempts;
+        const delay = shouldUseFastRetry
+          ? MIDNIGHT_FAST_RETRY_DELAY_MS
+          : Math.min(
+              RECONNECT_BASE_DELAY_MS * Math.pow(2, this.reconnectAttempts - 1),
+              RECONNECT_MAX_DELAY_MS,
+            );
+
+        if (shouldUseFastRetry) {
+          // 凌晨短时关服期间避免指数退避过大，保持稳定快速探测
+          this.reconnectAttempts = 0;
+        }
 
         console.error(
-          `【重连】第 ${this.reconnectAttempts} 次重连失败: ${
-            (error as Error).message
-          }`,
+          `【重连】第 ${failedAttempt} 次重连失败: ${(error as Error).message}`,
         );
         console.log(`【重连】等待 ${delay / 1000}s 后进行下一次尝试...`);
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
+  }
+
+  private _isMidnightFastRetryWindow(now: Date = new Date()): boolean {
+    const currentHour = now.getHours();
+    return (
+      currentHour >= MIDNIGHT_FAST_RETRY_START_HOUR &&
+      currentHour < MIDNIGHT_FAST_RETRY_END_HOUR
+    );
   }
 
   private readyWaiters: Array<() => void> = [];
