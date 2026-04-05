@@ -61,6 +61,7 @@ function parseRankList(rankResult: Buffer): RankItem[] {
  *   1: 狂野模式
  *
  * @param tab - 子分类索引（从 0 开始）
+ *
  *   page=2（精灵排行）:
  *     0: 胜场
  *     1: 出场次数
