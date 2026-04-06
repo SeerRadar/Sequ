@@ -59,6 +59,7 @@ function parseRankList(rankResult: Buffer): RankItem[] {
  * @param mode - 模式
  *   0: 竞技模式
  *   1: 狂野模式
+ *   2: 专家模式
  *
  * @param tab - 子分类索引（从 0 开始）
  *
@@ -83,16 +84,18 @@ function parseRankList(rankResult: Buffer): RankItem[] {
  * getPeakRankKey(1, 0, 0) // 120（玩家排行）
  * getPeakRankKey(2, 0, 1) // 93（精灵出场次数）
  * getPeakRankKey(3, 1, 0) // 187（套装胜场）
+ * getPeakRankKey(4, 2, 1) // 205（称号出场次数）
  */
 function getPeakRankKey(page: number, mode: number, tab: number): number {
   switch (page) {
     case 1: // 玩家排行
-      return mode === 0 ? 120 : 182;
+      return [120, 182, 199][mode] ?? NaN;
     case 2: // 精灵排行
       return (
         [
           [177, 93, 94],
           [185, 184, 183],
+          [202, 201, 200],
         ][mode]?.[tab] ?? NaN
       );
     case 3: // 套装排行
@@ -100,6 +103,7 @@ function getPeakRankKey(page: number, mode: number, tab: number): number {
         [
           [174, 173],
           [187, 186],
+          [204, 203],
         ][mode]?.[tab] ?? NaN
       );
     case 4: // 称号排行
@@ -107,6 +111,7 @@ function getPeakRankKey(page: number, mode: number, tab: number): number {
         [
           [176, 175],
           [189, 188],
+          [206, 205],
         ][mode]?.[tab] ?? NaN
       );
     default:
