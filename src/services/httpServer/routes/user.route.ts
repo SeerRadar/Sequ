@@ -1,24 +1,21 @@
-import express from "express";
+import { getPeakRankInfo, getVoteInfo } from '../controllers/peak.controller.js'
+import { getBookAndAchieveRankInfo } from '../controllers/rank.controller.js'
 import {
-  getUserOnlineStatus,
-  getUserInfo,
   getTeamInfo,
-} from "../controllers/user.controller.js";
-import {
-  getPeakRankInfo,
-  getVoteInfo,
-} from "../controllers/peak.controller.js";
-import { getBookAndAchieveRankInfo } from "../controllers/rank.controller.js";
+  getUserInfo,
+  getUserOnlineStatus,
+} from '../controllers/user.controller.js'
+import express from 'express'
 
-const router: express.Router = express.Router();
+const router: express.Router = express.Router()
 
-router.get("/getUserOnlineStatus", getUserOnlineStatus);
-router.get("/getUserInfo", getUserInfo);
-router.get("/getTeamInfo", getTeamInfo);
+router.get('/getUserOnlineStatus', getUserOnlineStatus)
+router.get('/getUserInfo', getUserInfo)
+router.get('/getTeamInfo', getTeamInfo)
 
-router.get("/getVoteInfo", getVoteInfo);
-router.get("/getPeakRankInfo", getPeakRankInfo);
+router.get('/getVoteInfo', getVoteInfo)
+router.get('/getPeakRankInfo', getPeakRankInfo)
 
-router.get("/getBookAndAchieveRankInfo", getBookAndAchieveRankInfo);
+router.get('/getBookAndAchieveRankInfo', getBookAndAchieveRankInfo)
 
-export default router;
+export default router
