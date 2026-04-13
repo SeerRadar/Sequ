@@ -9,16 +9,19 @@
     "start": "tsc && node dist/index.js",
     "dev": "tsx src/index.ts",
     "lint": "oxlint",
-    "lint:fix": "oxlint --fix"
+    "lint:fix": "oxlint --fix",
+    "format": "prettier --write src/"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.33.0",
   "devDependencies": {
+    "@trivago/prettier-plugin-sort-imports": "^6.0.2",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "oxlint": "^1.59.0",
+    "prettier": "^3.8.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
   },
