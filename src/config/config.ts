@@ -1,8 +1,15 @@
 import dotenv from 'dotenv';
 import fs from 'fs';
+import os from 'os';
 
-const envPath = fs.existsSync('.env.development') ? '.env.development' : '.env';
-dotenv.config({ path: envPath });
+const isLocalWindows = os.platform() === 'win32';
+
+if (isLocalWindows && fs.existsSync('.env.development')) {
+  console.log('Env: development');
+  dotenv.config({ path: '.env.development' });
+}
+
+dotenv.config();
 
 const env = {
   string: (key: string, defaultVal: string) => process.env[key] || defaultVal,
