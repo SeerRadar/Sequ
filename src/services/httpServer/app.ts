@@ -8,8 +8,9 @@ const app = new Hono();
 app.use(cors());
 
 app.use('*', async (c, next) => {
+  const url = new URL(c.req.url);
   console.log(
-    `[${dayjs().format('YYYY-MM-DD HH:mm:ss')}] ${c.req.method} ${new URL(c.req.url).pathname}`,
+    `[${dayjs().format('YYYY-MM-DD HH:mm:ss')}] ${c.req.method} ${url.pathname}${url.search}`,
   );
   await next();
 });
