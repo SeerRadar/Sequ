@@ -1,18 +1,17 @@
 import { settings } from './config/config.js';
 import { app } from './services/httpServer/app.js';
 import { tcpService } from './services/tcpService.js';
-import type { Server } from 'http';
+import { serve } from '@hono/node-server';
 
 process.title = 'seer-query';
 
-let httpServer: Server | null = null;
-// pkill -f "seer-api"
+let httpServer: ReturnType<typeof serve> | null = null;
 
 async function bootstrap() {
   try {
     await tcpService.init();
 
-    httpServer = app.listen(settings.http_port, () => {
+    httpServer = serve({ fetch: app.fetch, port: settings.http_port }, () => {
       console.log(`HTTP 服务器已启动: http://localhost:${settings.http_port}`);
     });
   } catch (error) {
