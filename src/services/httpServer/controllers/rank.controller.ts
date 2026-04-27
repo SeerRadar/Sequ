@@ -3,7 +3,7 @@ import { BufferReader } from '../../../utils/reader.js';
 import { badRequest, fail, notFound, success } from '../../../utils/reply.js';
 import type { ReplyPayload } from '../../../utils/reply.js';
 import { tcpService } from '../../tcpService.js';
-import type { Request, Response } from 'express';
+import type { Context } from 'hono';
 
 type RankItem = {
   userid: number;
@@ -78,16 +78,16 @@ async function getNormalRankInfo({
   }
 }
 
-export const getBookAndAchieveRankInfo = async (
-  req: Request,
-  res: Response,
-) => {
-  const { type, startIdx = 0, endIdx = 99 } = req.query;
+export const getBookAndAchieveRankInfo = async (c: Context) => {
+  const type = c.req.query('type');
+  const startIdx = c.req.query('startIdx') ?? 0;
+  const endIdx = c.req.query('endIdx') ?? 99;
   const typeNum = Number(type);
 
   if (!Number.isFinite(typeNum) || typeNum < 0) {
-    res.json(badRequest('数据返回失败', { error: '请输入有效的排行榜类型' }));
-    return;
+    return c.json(
+      badRequest('数据返回失败', { error: '请输入有效的排行榜类型' }),
+    );
   }
   let key: number;
   let subkey: number;
@@ -101,8 +101,7 @@ export const getBookAndAchieveRankInfo = async (
     key = 17;
     subkey = 0;
   } else {
-    res.json(badRequest('数据返回失败', { error: '排行榜类型不存在' }));
-    return;
+    return c.json(badRequest('数据返回失败', { error: '排行榜类型不存在' }));
   }
 
   const replyPayload = await getNormalRankInfo({
@@ -111,5 +110,5 @@ export const getBookAndAchieveRankInfo = async (
     startIdx: Number(startIdx),
     endIdx: Number(endIdx),
   });
-  res.json(replyPayload);
+  return c.json(replyPayload);
 };

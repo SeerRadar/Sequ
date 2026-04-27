@@ -8,9 +8,9 @@ import {
   getUserInfo,
   getUserOnlineStatus,
 } from '../controllers/user.controller.js';
-import express from 'express';
+import { Hono } from 'hono';
 
-const router: express.Router = express.Router();
+const router = new Hono();
 
 router.get('/getUserOnlineStatus', getUserOnlineStatus);
 router.get('/getUserInfo', getUserInfo);

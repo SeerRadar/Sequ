@@ -7,7 +7,7 @@ import { PacketBuilder } from '../../../utils/pkgBuilder.js';
 import { BufferReader } from '../../../utils/reader.js';
 import { badRequest, fail, notFound, success } from '../../../utils/reply.js';
 import { tcpService } from '../../tcpService.js';
-import type { Request, Response } from 'express';
+import type { Context } from 'hono';
 
 interface NicknameResult {
   success: boolean;
@@ -81,35 +81,30 @@ async function fetchOnlineStatus(account: number): Promise<OnlineResult> {
 }
 
 // 查询用户在线状态
-export async function getUserOnlineStatus(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const account = Number(req.query.account);
+export async function getUserOnlineStatus(c: Context): Promise<Response> {
+  const account = Number(c.req.query('account'));
 
   if (!isValidAccount(account)) {
     const invalidAccountResponse = getInvalidAccountRes(account);
-    res.json(
+    return c.json(
       badRequest(invalidAccountResponse.message, invalidAccountResponse.data),
     );
-    return;
   }
 
   try {
     const nicknameResult = await fetchNickname(account);
     if (!nicknameResult.success) {
-      res.json(
+      return c.json(
         notFound('数据返回失败', {
           account: String(account),
           error: '该米米号的信息不存在',
         }),
       );
-      return;
     }
 
     const onlineResult = await fetchOnlineStatus(account);
 
-    res.json(
+    return c.json(
       success(
         {
           account: String(account),
@@ -120,7 +115,7 @@ export async function getUserOnlineStatus(
       ),
     );
   } catch (error) {
-    res.json(
+    return c.json(
       fail('数据返回失败', {
         account: String(account),
         error: (error as Error).message,
@@ -130,31 +125,29 @@ export async function getUserOnlineStatus(
 }
 
 // 获取米米号详细信息
-export async function getUserInfo(req: Request, res: Response): Promise<void> {
-  const account = Number(req.query.account);
+export async function getUserInfo(c: Context): Promise<Response> {
+  const account = Number(c.req.query('account'));
 
   if (!isValidAccount(account)) {
     const invalidAccountResponse = getInvalidAccountRes(account, true);
-    res.json(
+    return c.json(
       badRequest(invalidAccountResponse.message, invalidAccountResponse.data, {
         status: invalidAccountResponse.status,
       }),
     );
-    return;
   }
 
   try {
     // 验证账号是否存在
     const nicknameResult = await fetchNickname(account);
     if (!nicknameResult.success) {
-      res.json(
+      return c.json(
         notFound(
           '数据返回失败',
           { account: String(account), error: '该米米号的信息不存在' },
           { status: 1 },
         ),
       );
-      return;
     }
 
     // 获取在线状态和简单信息
@@ -175,7 +168,7 @@ export async function getUserInfo(req: Request, res: Response): Promise<void> {
       await sleep(PEAK_QUERY_DELAY_MS);
     }
 
-    res.json(
+    return c.json(
       success(
         {
           account: String(account),
@@ -193,7 +186,7 @@ export async function getUserInfo(req: Request, res: Response): Promise<void> {
       ),
     );
   } catch (error) {
-    res.json(
+    return c.json(
       fail(
         '数据返回失败',
         { account: String(account), error: (error as Error).message },
@@ -205,12 +198,11 @@ export async function getUserInfo(req: Request, res: Response): Promise<void> {
 }
 
 // 获取战队信息
-export async function getTeamInfo(req: Request, res: Response): Promise<void> {
-  const teamId = Number(req.query.teamId);
+export async function getTeamInfo(c: Context): Promise<Response> {
+  const teamId = Number(c.req.query('teamId'));
 
   if (!teamId || isNaN(teamId) || teamId <= 0) {
-    res.json(badRequest('数据返回失败', { error: '请输入有效的战队ID' }));
-    return;
+    return c.json(badRequest('数据返回失败', { error: '请输入有效的战队ID' }));
   }
 
   try {
@@ -218,17 +210,16 @@ export async function getTeamInfo(req: Request, res: Response): Promise<void> {
     const result = await tcpService.sendAndReceive(2917, pkt);
 
     if (result && result.length > 0) {
-      res.json(
+      return c.json(
         success(
           { teamId: String(teamId), hexDataTeam: toHexStr(result) },
           '获取成功',
         ),
       );
-      return;
     }
 
-    res.json(notFound('数据返回失败', { error: '该战队号的信息不存在' }));
+    return c.json(notFound('数据返回失败', { error: '该战队号的信息不存在' }));
   } catch (error) {
-    res.json(fail('数据返回失败', { error: (error as Error).message }));
+    return c.json(fail('数据返回失败', { error: (error as Error).message }));
   }
 }

@@ -2,7 +2,7 @@ import { PacketBuilder } from '../../../utils/pkgBuilder.js';
 import { BufferReader } from '../../../utils/reader.js';
 import { badRequest, fail, notFound, success } from '../../../utils/reply.js';
 import { tcpService } from '../../tcpService.js';
-import type { Request, Response } from 'express';
+import type { Context } from 'hono';
 
 type RankItem = {
   userid: number;
@@ -120,16 +120,17 @@ function getPeakRankKey(page: number, mode: number, tab: number): number {
 }
 
 // 获取投票信息 voteType: 0 限制级；1 准限制级
-export async function getVoteInfo(req: Request, res: Response): Promise<void> {
-  const voteDate = Number(req.query.voteDate);
+export async function getVoteInfo(c: Context): Promise<Response> {
+  const voteDate = Number(c.req.query('voteDate'));
   // 0 限制级；1 准限制级
-  const voteType = Number(req.query.voteType) === 1 ? 1 : 0;
-  const startIdx = Number(req.query.startIdx ?? 0);
-  const endIdx = Number(req.query.endIdx ?? 25);
+  const voteType = Number(c.req.query('voteType')) === 1 ? 1 : 0;
+  const startIdx = Number(c.req.query('startIdx') ?? 0);
+  const endIdx = Number(c.req.query('endIdx') ?? 25);
 
   if (!Number.isFinite(voteDate) || voteDate <= 0) {
-    res.json(badRequest('数据返回失败', { error: '请输入有效的投票日期' }));
-    return;
+    return c.json(
+      badRequest('数据返回失败', { error: '请输入有效的投票日期' }),
+    );
   }
 
   if (
@@ -138,8 +139,9 @@ export async function getVoteInfo(req: Request, res: Response): Promise<void> {
     startIdx < 0 ||
     endIdx < startIdx
   ) {
-    res.json(badRequest('数据返回失败', { error: '请输入有效的分页参数' }));
-    return;
+    return c.json(
+      badRequest('数据返回失败', { error: '请输入有效的分页参数' }),
+    );
   }
 
   try {
@@ -154,28 +156,28 @@ export async function getVoteInfo(req: Request, res: Response): Promise<void> {
 
     if (voteResult && voteResult.length > 0) {
       const voteList = parseVoteList(voteResult);
-      res.json(success({ voteList }, '获取成功'));
-      return;
+      return c.json(success({ voteList }, '获取成功'));
     }
 
-    res.json(notFound('数据返回失败', { error: '该投票日期的信息不存在' }));
+    return c.json(
+      notFound('数据返回失败', { error: '该投票日期的信息不存在' }),
+    );
   } catch (error) {
-    res.json(fail('数据返回失败', { error: (error as Error).message }, 500));
+    return c.json(
+      fail('数据返回失败', { error: (error as Error).message }, 500),
+    );
   }
 }
 
 // 获取巅峰排行信息
-export async function getPeakRankInfo(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const keyParam = Number(req.query.key);
-  const page = Number(req.query.page);
-  const mode = Number(req.query.mode ?? 0);
-  const tab = Number(req.query.tab ?? 0);
-  const subkey = Number(req.query.subkey);
-  const startIdx = Number(req.query.startIdx ?? 0);
-  const endIdx = Number(req.query.endIdx ?? 99);
+export async function getPeakRankInfo(c: Context): Promise<Response> {
+  const keyParam = Number(c.req.query('key'));
+  const page = Number(c.req.query('page'));
+  const mode = Number(c.req.query('mode') ?? 0);
+  const tab = Number(c.req.query('tab') ?? 0);
+  const subkey = Number(c.req.query('subkey'));
+  const startIdx = Number(c.req.query('startIdx') ?? 0);
+  const endIdx = Number(c.req.query('endIdx') ?? 99);
 
   let key = keyParam;
 
@@ -184,8 +186,7 @@ export async function getPeakRankInfo(
   }
 
   if (!Number.isFinite(key)) {
-    res.json(badRequest('数据返回失败', { error: '无效的排行榜类型' }));
-    return;
+    return c.json(badRequest('数据返回失败', { error: '无效的排行榜类型' }));
   }
 
   if (
@@ -194,8 +195,9 @@ export async function getPeakRankInfo(
     key < 0 ||
     subkey < 0
   ) {
-    res.json(badRequest('数据返回失败', { error: '请输入有效的排行参数' }));
-    return;
+    return c.json(
+      badRequest('数据返回失败', { error: '请输入有效的排行参数' }),
+    );
   }
 
   if (
@@ -204,8 +206,9 @@ export async function getPeakRankInfo(
     startIdx < 0 ||
     endIdx < startIdx
   ) {
-    res.json(badRequest('数据返回失败', { error: '请输入有效的分页参数' }));
-    return;
+    return c.json(
+      badRequest('数据返回失败', { error: '请输入有效的分页参数' }),
+    );
   }
 
   try {
@@ -221,7 +224,7 @@ export async function getPeakRankInfo(
 
     if (result && result.length > 0) {
       const rankList = parseRankList(result);
-      res.json(
+      return c.json(
         success(
           {
             key,
@@ -233,11 +236,10 @@ export async function getPeakRankInfo(
           '获取成功',
         ),
       );
-      return;
     }
 
-    res.json(notFound('数据返回失败', { error: '该排行信息不存在' }));
+    return c.json(notFound('数据返回失败', { error: '该排行信息不存在' }));
   } catch (error) {
-    res.json(fail('数据返回失败', { error: (error as Error).message }));
+    return c.json(fail('数据返回失败', { error: (error as Error).message }));
   }
 }
