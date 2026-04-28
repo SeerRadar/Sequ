@@ -46,37 +46,6 @@ export class SendPacketProcessing {
       this.cmdId = packet.subarray(5, 9);
       this.result = packet.subarray(13, 17);
       this.body = packet.subarray(17);
-
-      if (process.env.DEBUG_PACKET === 'true') {
-        console.log('=== 数据包解析 ===');
-        console.log(
-          `Length: ${this.length.readUInt32BE(0)} (0x${HexFormatter.format08X(
-            this.length.readUInt32BE(0),
-          )})`,
-        );
-        console.log(
-          `Version: ${this.version} (0x${HexFormatter.format02X(this.version ?? 0)})`,
-        );
-        console.log(
-          `CmdId: ${this.cmdId.readUInt32BE(0)} (0x${HexFormatter.format08X(
-            this.cmdId.readUInt32BE(0),
-          )})`,
-        );
-        console.log(
-          `UserId: ${this.userId.readUInt32BE(0)} (0x${HexFormatter.format08X(
-            this.userId.readUInt32BE(0),
-          )})`,
-        );
-        console.log(
-          `Result: ${this.result.readUInt32BE(0)} (0x${HexFormatter.format08X(
-            this.result.readUInt32BE(0),
-          )})`,
-        );
-        console.log(`Body: ${this.body.toString('hex').toUpperCase()}`);
-        console.log(
-          `Body (formatted): ${HexFormatter.formatBuffer(this.body)}`,
-        );
-      }
     }
 
     return this;
@@ -215,46 +184,6 @@ export class SendPacketProcessing {
         }
       });
     });
-  }
-
-  /**
-   * 获取格式化的数据包信息
-   */
-  getFormattedPacketInfo(): string | null {
-    if (
-      !this.length ||
-      this.version === null ||
-      !this.cmdId ||
-      !this.result ||
-      !this.body
-    ) {
-      return null;
-    }
-
-    const lengthValue = this.length.readUInt32BE(0);
-    const cmdIdValue = this.cmdId.readUInt32BE(0);
-    const userIdValue = this.userId.readUInt32BE(0);
-    const resultValue = this.result.readUInt32BE(0);
-
-    return [
-      '=== 数据包信息 ===',
-      `Length:  ${lengthValue
-        .toString()
-        .padStart(10)} (0x${HexFormatter.format08X(lengthValue)})`,
-      `Version: ${this.version
-        .toString()
-        .padStart(10)} (0x${HexFormatter.format02X(this.version)})`,
-      `CmdId:   ${cmdIdValue
-        .toString()
-        .padStart(10)} (0x${HexFormatter.format08X(cmdIdValue)})`,
-      `UserId:  ${userIdValue
-        .toString()
-        .padStart(10)} (0x${HexFormatter.format08X(userIdValue)})`,
-      `Result:  ${resultValue
-        .toString()
-        .padStart(10)} (0x${HexFormatter.format08X(resultValue)})`,
-      `Body:    ${HexFormatter.formatBuffer(this.body, 4, ' ')}`,
-    ].join('\n');
   }
 
   setMessageCallback(callback: MessageCallback): void {

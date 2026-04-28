@@ -1,6 +1,5 @@
 import CommandData from '../config/Command.json' with { type: 'json' };
 
-/** 命令 ID → 命令名称映射表（从 Command.json 加载，懒加载单例） */
 let _commandDict: Record<string, string> | null = null;
 
 export function getCommandDict(): Record<string, string> {

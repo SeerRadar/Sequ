@@ -5,7 +5,7 @@ import { HexFormatter } from './format.js';
  */
 export class PacketBuilder {
   private length: number = 0;
-  private version: number = 0x31; // 默认版本号 49 (十六进制 0x31)
+  private version: number = 0x31; // 默认版本号 49
   private cmdId: number = 0;
   private userId: number = 0; // 占位符，SendPacketProcessing 中会重新计算写入
   private result: number = 0; // 占位符，SendPacketProcessing 中会重新计算写入
@@ -83,7 +83,6 @@ export class PacketBuilder {
    * 构建完整数据包的十六进制字符串（供 SendPacketProcessing.sendPacket 使用）
    */
   build(debug: boolean = false): string {
-    // 计算包体总长度
     const bodyLength = this.bodyParts.reduce(
       (sum, part) => sum + part.length,
       0,
@@ -111,7 +110,7 @@ export class PacketBuilder {
         ? Buffer.concat(this.bodyParts)
         : Buffer.alloc(0);
 
-    // 组装完整数据包 (包含占位符的 17 字节 Header + Body)
+    // 构建完整数据包
     const packet = Buffer.concat([
       lengthBuffer,
       versionBuffer,
@@ -133,25 +132,6 @@ export class PacketBuilder {
     }
 
     return packet.toString('hex').toUpperCase();
-  }
-
-  /**
-   * 预览数据包基础信息（不实际构建）
-   */
-  preview(): string {
-    const bodyLength = this.bodyParts.reduce(
-      (sum, part) => sum + part.length,
-      0,
-    );
-    const totalLength = 17 + bodyLength;
-
-    return [
-      '=== 数据包预览 ===',
-      `总长度: ${totalLength} 字节`,
-      `版本号: ${this.version} (0x${HexFormatter.format02X(this.version)})`,
-      `命令ID: ${this.cmdId} (0x${HexFormatter.format08X(this.cmdId)})`,
-      `包体长度: ${bodyLength} 字节`,
-    ].join('\n');
   }
 
   /**

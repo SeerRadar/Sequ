@@ -84,10 +84,9 @@ export class ReceivePacketAnalysis extends EventEmitter {
   private _processBuffer(): void {
     while (this.buffer.length >= 4) {
       try {
-        // 读取封包长度 (大端序, 4字节)
         const packetLength = this.buffer.readUInt32BE(0);
 
-        // 合理性检查：长度至少包含头部(17字节)，且不超过 1MB
+        // 长度至少包含头部(17字节)，且不超过 1MB
         if (packetLength < 4 || packetLength > 1024 * 1024) {
           if (this.messageCallback) {
             this.messageCallback(`接收|错误|异常封包长度: ${packetLength}`);
