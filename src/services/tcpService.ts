@@ -3,8 +3,11 @@ import { Algorithms } from '../core/encrypt.js';
 import { Login } from '../core/login.js';
 import { ReceivePacketAnalysis } from '../pkg/receive.js';
 import { SendPacketProcessing } from '../pkg/send.js';
-import { getUnityNoticeInfo, parseUnityNotice } from '../utils/fetchData.js';
-import { PacketBuilder } from '../utils/pkgBuilder.js';
+import {
+  getUnityNoticeInfo,
+  parseUnityNotice,
+} from '../utils/http/fetchData.js';
+import { PacketBuilder } from '../utils/pkg/builder.js';
 import { sendTextMessage } from '../utils/webHook/feishu.js';
 import dayjs from 'dayjs';
 

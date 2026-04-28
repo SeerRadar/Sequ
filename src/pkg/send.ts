@@ -1,6 +1,5 @@
 import { Algorithms } from '../core/encrypt.js';
 import { getCommandName } from '../utils/commandDict.js';
-import { HexFormatter } from '../utils/format.js';
 import type { ReceivePacketAnalysis } from './receive.js';
 import net from 'net';
 
