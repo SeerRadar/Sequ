@@ -1,5 +1,6 @@
 import { Algorithms } from '../core/encrypt.js';
 import { getCommandName } from '../utils/commandDict.js';
+import { sendTextMessage } from '../utils/webHook/feishu.js';
 import { EventEmitter } from 'events';
 import net from 'net';
 
@@ -81,6 +82,9 @@ export class ReceivePacketAnalysis extends EventEmitter {
     });
   }
 
+  /**
+   * 处理缓冲区中的数据，解析完整的收包并触发事件
+   */
   private _processBuffer(): void {
     while (this.buffer.length >= 4) {
       try {
@@ -106,6 +110,11 @@ export class ReceivePacketAnalysis extends EventEmitter {
         // 提取命令 ID (offset 5, 长度 4 字节, 大端序)
         const commandValue = packetData.readUInt32BE(5);
         const commandStr = getCommandName(commandValue);
+
+        // 如果cmdid为 41457 (关服通知)，则发送飞书消息通知管理员
+        if (commandValue === 41457) {
+          this._handleServerMaintenance(packetData);
+        }
 
         if (this.messageCallback && !this.ignoredCmdIds.has(commandValue)) {
           if (this.logFullPacket) {
@@ -162,6 +171,31 @@ export class ReceivePacketAnalysis extends EventEmitter {
         break;
       }
     }
+  }
+
+  private _handleServerMaintenance(packetData: Buffer) {
+    const ts = packetData.readUInt32BE(17);
+
+    if (!ts || ts < 1000000000) return;
+
+    const now = Math.floor(Date.now() / 1000);
+    const remainSec = ts - now;
+
+    if (remainSec <= 0) return;
+
+    this.emit('server:maintenance', {
+      timestamp: ts,
+      remainSec,
+    });
+
+    const minutes = Math.ceil(remainSec / 60);
+
+    const msg =
+      minutes > 60
+        ? `服务器维护通知：约 ${Math.floor(minutes / 60)} 小时后关服`
+        : `服务器维护通知：${minutes} 分钟后关服`;
+
+    sendTextMessage(msg);
   }
 
   /**
