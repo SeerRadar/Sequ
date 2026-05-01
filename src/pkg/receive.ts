@@ -1,8 +1,30 @@
 import { Algorithms } from '../core/encrypt.js';
 import { getCommandName } from '../utils/commandDict.js';
+import {
+  CMD_KEY_INIT,
+  CMD_MAINTENANCE,
+  HEADER_SIZE,
+  MAX_PACKET_SIZE,
+  MIN_PACKET_SIZE,
+  OFF_LENGTH,
+  type ParsedPacket,
+  parsePacket,
+} from '../utils/pkg/protocol.js';
 import { sendTextMessage } from '../utils/webHook/feishu.js';
 import { EventEmitter } from 'events';
 import net from 'net';
+
+export interface ReceivePacketOptions {
+  algorithms: Algorithms;
+  tcpSocket: net.Socket;
+  userId: number;
+  messageCallback?: (msg: string) => void;
+  disconnectCallback?: () => Promise<void> | void;
+  logFullPacket?: boolean;
+  ignoredCmdIds?: number[];
+}
+
+const DEFAULT_IGNORED_CMD_IDS = [8002, 3452, 2004, 2001, 41228, 1002, 2002];
 
 export class ReceivePacketAnalysis extends EventEmitter {
   private algorithms: Algorithms;
@@ -22,32 +44,28 @@ export class ReceivePacketAnalysis extends EventEmitter {
   private logFullPacket: boolean;
   private ignoredCmdIds: Set<number>;
 
-  constructor(
-    algorithms: Algorithms,
-    tcpSocket: net.Socket,
-    userid: number,
-    messageCallback?: (msg: string) => void,
-    disconnectCallback?: () => Promise<void> | void,
-    logFullPacket: boolean = false,
-    ignoredCmdIds: number[] = [8002, 3452, 2004, 2001, 41228, 1002, 2002],
-  ) {
+  constructor(options: ReceivePacketOptions) {
     super();
-    this.algorithms = algorithms;
-    this.tcpSocket = tcpSocket;
-    this.userid = userid;
-    this.messageCallback = messageCallback;
-    this.disconnectCallback = disconnectCallback;
-
-    this.logFullPacket = logFullPacket;
-    this.ignoredCmdIds = new Set(ignoredCmdIds);
+    this.algorithms = options.algorithms;
+    this.tcpSocket = options.tcpSocket;
+    this.userid = options.userId;
+    this.messageCallback = options.messageCallback;
+    this.disconnectCallback = options.disconnectCallback;
+    this.logFullPacket = options.logFullPacket ?? false;
+    this.ignoredCmdIds = new Set(
+      options.ignoredCmdIds ?? DEFAULT_IGNORED_CMD_IDS,
+    );
 
     this._setupSocketListeners();
   }
 
+  private _message(msg: string): void {
+    if (this.messageCallback) this.messageCallback(msg);
+  }
+
   private _setupSocketListeners(): void {
     if (!this.tcpSocket || this.tcpSocket.destroyed) {
-      if (this.messageCallback)
-        this.messageCallback('连接|错误|未连接到服务器');
+      this._message('连接|错误|未连接到服务器');
       return;
     }
 
@@ -58,123 +76,121 @@ export class ReceivePacketAnalysis extends EventEmitter {
     });
 
     this.tcpSocket.on('error', async (error: Error) => {
-      if (this.messageCallback) {
-        this.messageCallback(`接收|错误|${error.message}`);
-      }
-      this.running = false;
-      if (!this.disconnectHandled && this.disconnectCallback) {
-        this.disconnectHandled = true;
-        await this.disconnectCallback();
-      }
-      this.emit('error', error);
+      await this._onSocketError(error);
     });
 
     this.tcpSocket.on('close', async () => {
-      if (this.running && this.messageCallback) {
-        this.messageCallback('连接|断开|服务器断开连接');
-      }
-      this.running = false;
-      if (!this.disconnectHandled && this.disconnectCallback) {
-        this.disconnectHandled = true;
-        await this.disconnectCallback();
-      }
-      this.emit('close');
+      await this._onSocketClose();
     });
   }
 
-  /**
-   * 处理缓冲区中的数据，解析完整的收包并触发事件
-   */
-  private _processBuffer(): void {
-    while (this.buffer.length >= 4) {
-      try {
-        const packetLength = this.buffer.readUInt32BE(0);
+  private async _onSocketError(error: Error): Promise<void> {
+    this._message(`接收|错误|${error.message}`);
+    this.running = false;
+    if (!this.disconnectHandled && this.disconnectCallback) {
+      this.disconnectHandled = true;
+      await this.disconnectCallback();
+    }
+    this.emit('error', error);
+  }
 
-        // 长度至少包含头部(17字节)，且不超过 1MB
-        if (packetLength < 4 || packetLength > 1024 * 1024) {
-          if (this.messageCallback) {
-            this.messageCallback(`接收|错误|异常封包长度: ${packetLength}`);
-          }
+  private async _onSocketClose(): Promise<void> {
+    if (this.running) {
+      this._message('连接|断开|服务器断开连接');
+    }
+    this.running = false;
+    if (!this.disconnectHandled && this.disconnectCallback) {
+      this.disconnectHandled = true;
+      await this.disconnectCallback();
+    }
+    this.emit('close');
+  }
+
+  private _processBuffer(): void {
+    while (this.buffer.length >= HEADER_SIZE) {
+      try {
+        const packetLength = this.buffer.readUInt32BE(OFF_LENGTH);
+
+        if (packetLength < MIN_PACKET_SIZE || packetLength > MAX_PACKET_SIZE) {
+          this._message(`接收|错误|异常封包长度: ${packetLength}`);
           this.buffer = Buffer.alloc(0);
           break;
         }
 
         if (this.buffer.length < packetLength) {
-          break; // 数据包不完整，等待下一次 data 事件
+          break;
         }
 
-        // 截取当前封包数据
-        const packetData = this.buffer.subarray(0, packetLength);
+        const raw = this.buffer.subarray(0, packetLength);
         this.buffer = this.buffer.subarray(packetLength);
 
-        // 提取命令 ID (offset 5, 长度 4 字节, 大端序)
-        const commandValue = packetData.readUInt32BE(5);
-        const commandStr = getCommandName(commandValue);
-
-        // 如果cmdid为 41457 (关服通知)，则发送飞书消息通知管理员
-        if (commandValue === 41457) {
-          this._handleServerMaintenance(packetData);
+        const packet = parsePacket(raw);
+        if (!packet) {
+          this._message('接收|错误|封包解析失败');
+          continue;
         }
 
-        if (this.messageCallback && !this.ignoredCmdIds.has(commandValue)) {
-          if (this.logFullPacket) {
-            const cipher = packetData.toString('hex').toUpperCase();
-            this.messageCallback(
-              `接收|[${commandValue}] ${commandStr}|${cipher}`,
-            );
-          } else {
-            this.messageCallback(
-              `接收|[${commandValue}] ${commandStr}|length:${packetLength}`,
-            );
-          }
-        }
-
-        // 检查是否有等待该命令的 waiter（取队列中第一个）
-        const queue = this.waiters.get(commandValue);
-        if (queue && queue.length > 0) {
-          const resolve = queue[0];
-          queue.shift();
-          if (queue.length === 0) this.waiters.delete(commandValue);
-          if (resolve) {
-            resolve(packetData);
-          }
-        }
-
-        // 1001 命令处理 (密钥初始化)
-        if (commandValue === 1001) {
-          this.algorithms.InitKey(packetData, this.userid);
-          if (this.messageCallback) {
-            this.messageCallback('初始化|成功|密钥初始化完成');
-          }
-
-          // 提取 Result (offset 13, 长度 4 字节, 大端序)
-          const result = packetData.readUInt32BE(13);
-          this.algorithms.setResult(result);
-
-          if (this.messageCallback) {
-            this.messageCallback(`初始化|更新|Result: ${result}`);
-          }
-        }
-
-        // 触发通用事件
-        this.emit('packet', {
-          commandId: commandValue,
-          commandName: commandStr,
-          packetData: packetData,
-        });
+        this._handlePacket(packet);
       } catch (error) {
-        if (this.messageCallback) {
-          this.messageCallback(`接收|错误|${(error as Error).message}`);
-        }
-
+        this._message(`接收|错误|${(error as Error).message}`);
         this.buffer = Buffer.alloc(0);
         break;
       }
     }
   }
 
-  private _handleServerMaintenance(packetData: Buffer) {
-    const ts = packetData.readUInt32BE(17);
+  private _handlePacket(packet: ParsedPacket): void {
+    const commandName = getCommandName(packet.cmdId);
+
+    if (packet.cmdId === CMD_MAINTENANCE) {
+      this._handleServerMaintenance(packet);
+    }
+
+    this._logReceive(packet);
+
+    const queue = this.waiters.get(packet.cmdId);
+    if (queue && queue.length > 0) {
+      const resolve = queue.shift();
+      if (queue.length === 0) this.waiters.delete(packet.cmdId);
+      if (resolve) resolve(packet.raw);
+    }
+
+    if (packet.cmdId === CMD_KEY_INIT) {
+      this._handleKeyInit(packet);
+    }
+
+    this.emit('packet', {
+      commandId: packet.cmdId,
+      commandName,
+      packetData: packet.raw,
+    });
+  }
+
+  private _logReceive(packet: ParsedPacket): void {
+    if (!this.messageCallback || this.ignoredCmdIds.has(packet.cmdId)) return;
+
+    const commandName = getCommandName(packet.cmdId);
+
+    if (this.logFullPacket) {
+      const cipher = packet.raw.toString('hex').toUpperCase();
+      this._message(`接收|[${packet.cmdId}] ${commandName}|${cipher}`);
+    } else {
+      this._message(
+        `接收|[${packet.cmdId}] ${commandName}|length:${packet.length}`,
+      );
+    }
+  }
+
+  private _handleKeyInit(packet: ParsedPacket): void {
+    this.algorithms.InitKey(packet.raw, this.userid);
+    this._message('初始化|成功|密钥初始化完成');
+    this.algorithms.setResult(packet.result);
+    this._message(`初始化|更新|Result: ${packet.result}`);
+  }
+
+  private _handleServerMaintenance(packet: ParsedPacket): void {
+    if (packet.body.length < 4) return;
+    const ts = packet.body.readUInt32BE(0);
 
     if (!ts || ts < 1000000000) return;
 
@@ -198,11 +214,6 @@ export class ReceivePacketAnalysis extends EventEmitter {
     sendTextMessage(msg);
   }
 
-  /**
-   * 等待特定的返回封包
-   * @param commandId 命令 ID
-   * @param timeout 超时时间 (默认 5000 毫秒)
-   */
   async waitForSpecificData(
     commandId: number,
     timeout: number = 5000,
@@ -220,9 +231,7 @@ export class ReceivePacketAnalysis extends EventEmitter {
           if (idx !== -1) queue.splice(idx, 1);
           if (queue.length === 0) this.waiters.delete(commandId);
         }
-        if (this.messageCallback) {
-          this.messageCallback(`等待|超时|命令 ${commandId} 响应超时`);
-        }
+        this._message(`等待|超时|命令 ${commandId} 响应超时`);
         resolve(null);
       }, timeout);
 
@@ -235,9 +244,8 @@ export class ReceivePacketAnalysis extends EventEmitter {
 
   stop(): void {
     this.running = false;
-    this.disconnectHandled = true; // 主动停止时不再触发 disconnectCallback
+    this.disconnectHandled = true;
 
-    // 释放所有等待中的 waiter
     for (const queue of this.waiters.values()) {
       for (const resolve of queue) {
         resolve(null);
@@ -245,10 +253,8 @@ export class ReceivePacketAnalysis extends EventEmitter {
     }
     this.waiters.clear();
 
-    // 清理 buffer
     this.buffer = Buffer.alloc(0);
 
-    // 销毁 socket 连接
     if (this.tcpSocket && !this.tcpSocket.destroyed) {
       this.tcpSocket.removeAllListeners();
       this.tcpSocket.destroy();

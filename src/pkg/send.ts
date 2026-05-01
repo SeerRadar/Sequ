@@ -1,24 +1,23 @@
 import { Algorithms } from '../core/encrypt.js';
 import { getCommandName } from '../utils/commandDict.js';
+import {
+  OFF_CMD_ID,
+  OFF_LENGTH,
+  OFF_VERSION,
+  cleanHex,
+  parsePacket,
+  validateHex,
+} from '../utils/pkg/protocol.js';
 import type { ReceivePacketAnalysis } from './receive.js';
 import net from 'net';
 
 type MessageCallback = (message: string) => void;
 
-/**
- * 发送数据包处理类
- */
 export class SendPacketProcessing {
   private algorithms: Algorithms;
   private writer: net.Socket;
   private messageCallback: MessageCallback | null;
-
-  private length: Buffer | null = null;
-  private version: number | null = null;
-  private cmdId: Buffer | null = null;
   private userId: Buffer;
-  private result: Buffer | null = null;
-  private body: Buffer | null = null;
 
   constructor(
     algorithms: Algorithms,
@@ -30,71 +29,44 @@ export class SendPacketProcessing {
     this.writer = writer;
     this.messageCallback = messageCallback || null;
 
-    // 将用户ID转换为4字节大端序Buffer
     this.userId = Buffer.allocUnsafe(4);
     this.userId.writeUInt32BE(userid, 0);
   }
 
-  /**
-   * 解析数据包
-   */
-  parsePacket(packet: Buffer): this {
-    if (packet.length >= 17) {
-      this.length = packet.subarray(0, 4);
-      this.version = packet[4] ?? null;
-      this.cmdId = packet.subarray(5, 9);
-      this.result = packet.subarray(13, 17);
-      this.body = packet.subarray(17);
-    }
-
-    return this;
+  parsePacket(buf: Buffer) {
+    return parsePacket(buf);
   }
 
-  /**
-   * 组装数据包
-   */
-  groupPacket(packet: string): Buffer | null {
+  groupPacket(hex: string): Buffer | null {
     try {
-      packet = packet.replace(/\s+/g, '');
+      const cleaned = cleanHex(hex);
 
-      if (!/^[0-9A-Fa-f]+$/.test(packet)) {
+      if (!validateHex(cleaned)) {
         throw new Error('包含非十六进制字符');
       }
 
-      const packetBytes = Buffer.from(packet, 'hex');
+      const raw = Buffer.from(cleaned, 'hex');
+      const parsed = parsePacket(raw);
 
-      this.parsePacket(packetBytes);
-
-      if (
-        !this.cmdId ||
-        !this.body ||
-        this.length === null ||
-        this.version === null
-      ) {
+      if (!parsed) {
         throw new Error('数据包解析失败：字段提取不完整');
       }
 
-      const cmdIdValue = this.cmdId.readUInt32BE(0);
       const resultValue = this.algorithms.calculateResult(
-        cmdIdValue,
-        this.body,
+        parsed.cmdId,
+        parsed.body,
       );
+      const resultBuf = Buffer.allocUnsafe(4);
+      resultBuf.writeUInt32BE(resultValue, 0);
 
-      // 将Result值转换为4字节Buffer
-      const resultBuffer = Buffer.allocUnsafe(4);
-      resultBuffer.writeUInt32BE(resultValue, 0);
-
-      // 重新组装完整数据包 (包含计算出的 Result)
-      const assembledPacket = Buffer.concat([
-        this.length,
-        Buffer.from([this.version]),
-        this.cmdId,
+      return Buffer.concat([
+        raw.subarray(OFF_LENGTH, 4),
+        raw.subarray(OFF_VERSION, 5),
+        raw.subarray(OFF_CMD_ID, 9),
         this.userId,
-        resultBuffer,
-        this.body,
+        resultBuf,
+        parsed.body,
       ]);
-
-      return assembledPacket;
     } catch (error) {
       if (this.messageCallback) {
         this.messageCallback('发送|错误|封包数据格式错误');
@@ -104,29 +76,28 @@ export class SendPacketProcessing {
     }
   }
 
-  /**
-   * 发送数据包
-   */
-  async sendPacket(packedMessage: string): Promise<boolean> {
+  async sendPacket(hexPkt: string): Promise<boolean> {
     try {
-      const assembledPacket = this.groupPacket(packedMessage);
+      const assembled = this.groupPacket(hexPkt);
 
-      if (!assembledPacket) {
+      if (!assembled) {
         return false;
       }
 
-      if (this.messageCallback && this.cmdId) {
-        const commandValue = this.cmdId.readUInt32BE(0);
-        const commandStr = getCommandName(commandValue);
-
-        this.messageCallback(
-          `发送|[${commandValue}] ${commandStr}|${assembledPacket
-            .toString('hex')
-            .toUpperCase()}`,
-        );
+      if (this.messageCallback) {
+        const raw = Buffer.from(cleanHex(hexPkt), 'hex');
+        if (raw.length >= 9) {
+          const cmdId = raw.readUInt32BE(OFF_CMD_ID);
+          const commandName = getCommandName(cmdId);
+          this.messageCallback(
+            `发送|[${cmdId}] ${commandName}|${assembled
+              .toString('hex')
+              .toUpperCase()}`,
+          );
+        }
       }
 
-      return await this.writeToSocket(assembledPacket);
+      return await this.writeToSocket(assembled);
     } catch (error) {
       console.error('发送数据包失败:', error);
       if (this.messageCallback) {
@@ -136,13 +107,6 @@ export class SendPacketProcessing {
     }
   }
 
-  /**
-   * 发送数据包并等待对应的返回封包
-   * @param packedMessage 封包的 hex 字符串
-   * @param receiver 接收器实例
-   * @param expectedCmdId 期望收到的命令 ID（不传时从发包数据中解析）
-   * @param timeout 超时时间（默认 5000 毫秒）
-   */
   async sendAndReceive(
     packedMessage: string,
     receiver: ReceivePacketAnalysis,
@@ -152,10 +116,13 @@ export class SendPacketProcessing {
     const assembledPacket = this.groupPacket(packedMessage);
     if (!assembledPacket) return null;
 
-    const waitCmdId = expectedCmdId ?? this.cmdId?.readUInt32BE(0);
-
+    let waitCmdId = expectedCmdId;
     if (waitCmdId === undefined) {
-      throw new Error('无法确定需要等待的 Command ID');
+      const raw = Buffer.from(cleanHex(packedMessage), 'hex');
+      if (raw.length < 9) {
+        throw new Error('无法确定需要等待的 Command ID');
+      }
+      waitCmdId = raw.readUInt32BE(OFF_CMD_ID);
     }
 
     const receivePromise = receiver.waitForSpecificData(waitCmdId, timeout);
@@ -165,9 +132,6 @@ export class SendPacketProcessing {
     return receivePromise;
   }
 
-  /**
-   * 写入Socket
-   */
   private writeToSocket(data: Buffer): Promise<boolean> {
     return new Promise((resolve, reject) => {
       if (!this.isConnected()) {
@@ -192,13 +156,11 @@ export class SendPacketProcessing {
   isConnected(): boolean {
     if (!this.writer) return false;
 
-    // readyState=open 且可写，才认为连接可用。
-    const socketReady =
+    return (
       !this.writer.destroyed &&
       this.writer.readyState === 'open' &&
       this.writer.writable &&
-      !this.writer.writableEnded;
-
-    return socketReady;
+      !this.writer.writableEnded
+    );
   }
 }

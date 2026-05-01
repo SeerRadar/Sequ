@@ -132,18 +132,18 @@ export class TCPService {
       msgCb,
     );
 
-    this.receiver = new ReceivePacketAnalysis(
+    this.receiver = new ReceivePacketAnalysis({
       algorithms,
-      reader,
-      settings.service_account_id,
-      msgCb,
-      () => {
+      tcpSocket: reader,
+      userId: settings.service_account_id,
+      messageCallback: msgCb,
+      disconnectCallback: () => {
         this._log('warn', '【系统】网络连接已断开，准备重连...');
         this._startReconnect();
       },
-      settings.log_full_packet,
-      settings.ignored_cmd_ids,
-    );
+      logFullPacket: settings.log_full_packet,
+      ignoredCmdIds: settings.ignored_cmd_ids,
+    });
 
     await new Promise((resolve) => setTimeout(resolve, KEY_INIT_DELAY_MS));
 
