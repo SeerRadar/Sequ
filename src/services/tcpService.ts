@@ -8,6 +8,7 @@ import {
   parseUnityNotice,
 } from '../utils/http/fetchData.js';
 import { PacketBuilder } from '../utils/pkg/builder.js';
+import { buildPacket } from '../utils/pkg/builder.js';
 import { HEADER_SIZE } from '../utils/pkg/protocol.js';
 import { sendTextMessage } from '../utils/webHook/feishu.js';
 import dayjs from 'dayjs';
@@ -170,11 +171,7 @@ export class TCPService {
       }
 
       try {
-        const pkt2157 = new PacketBuilder()
-          .setCmdId(2157)
-          .addU32(1)
-          .addU32(settings.service_account_id)
-          .build();
+        const pkt2157 = buildPacket(2157, 1, settings.service_account_id);
         await this.sendAndReceive(pkt2157);
         this._log('info', '【心跳】2157 保持连接成功');
       } catch (error) {
