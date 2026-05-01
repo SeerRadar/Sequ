@@ -1,4 +1,5 @@
 import { format02X, format04X, format08X, formatBuffer } from './format.js';
+import { PROTO_VERSION } from './protocol.js';
 
 export function buildPacket(cmdId: number, ...params: number[]): string {
   const builder = new PacketBuilder().setCmdId(cmdId);
@@ -13,10 +14,10 @@ export function buildPacket(cmdId: number, ...params: number[]): string {
  */
 export class PacketBuilder {
   private length: number = 0;
-  private version: number = 0x31; // 默认版本号 49
+  private version: number = PROTO_VERSION;
   private cmdId: number = 0;
-  private userId: number = 0; // 占位符，SendPacketProcessing 中会重新计算写入
-  private result: number = 0; // 占位符，SendPacketProcessing 中会重新计算写入
+  private userId: number = 0;
+  private result: number = 0;
   private bodyParts: Buffer[] = [];
 
   setCmdId(cmdId: number): this {
@@ -133,8 +134,8 @@ export class PacketBuilder {
       console.log(`Length:  0x${format08X(this.length)}`);
       console.log(`Version: 0x${format02X(this.version)}`);
       console.log(`CmdId:   0x${format08X(this.cmdId)}`);
-      console.log(`UserId:  0x${format08X(this.userId)} (占位)`);
-      console.log(`Result:  0x${format08X(this.result)} (占位)`);
+      console.log(`UserId:  0x${format08X(this.userId)}`);
+      console.log(`Result:  0x${format08X(this.result)}`);
       console.log(`Body:    ${formatBuffer(body, 4, ' ')}`);
       console.log(`完整包:  ${formatBuffer(packet, 4, ' ')}`);
     }
@@ -147,7 +148,7 @@ export class PacketBuilder {
    */
   reset(): this {
     this.length = 0;
-    this.version = 0x31;
+    this.version = PROTO_VERSION;
     this.cmdId = 0;
     this.userId = 0;
     this.result = 0;
