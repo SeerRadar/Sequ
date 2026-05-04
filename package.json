@@ -1,6 +1,6 @@
 {
   "name": "seer-query",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "赛尔号TCP游戏数据查询服务，提供米米号/在线/战队/巅峰排行等HTTP API接口",
   "main": "index.js",
   "type": "module",
