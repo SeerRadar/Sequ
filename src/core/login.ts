@@ -1,4 +1,3 @@
-import { settings } from '../config/config.js';
 import { PacketBuilder } from '../utils/pkg/builder.js';
 import { Svr } from './svr.js';
 import axios from 'axios';
@@ -51,8 +50,8 @@ export class Login {
   }
 
   private connectSocket({
-    ip = settings.game_server_host,
-    port = settings.game_server_port,
+    ip,
+    port,
   }: {
     ip: string;
     port: number;

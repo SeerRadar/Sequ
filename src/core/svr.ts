@@ -1,3 +1,4 @@
+import { settings } from '../config/config.js';
 import { PacketBuilder } from '../utils/pkg/builder.js';
 import { HEADER_SIZE } from '../utils/pkg/protocol.js';
 import { BufferReader } from '../utils/pkg/reader.js';
@@ -26,7 +27,11 @@ export class Svr {
   }> {
     const servers = await this.getRangeServer(1800, 1900);
     if (servers.length === 0) {
-      throw new Error('没有可用的服务器');
+      return {
+        onlineID: 2200,
+        ip: settings.game_server_host,
+        port: settings.game_server_port,
+      };
     }
     const idx = Math.floor(Math.random() * servers.length);
     return {
