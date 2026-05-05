@@ -2,7 +2,8 @@
 
 # Sequ
 
-说明：本项目的登录实现、封包处理、查询组合、命令字典整理版本和相关工程组织来源于 [saixiaoxi](https://github.com/oldml/saixiaoxi)，基于原python版本重写为 TypeScript，后续更新中增加了其他功能，对oldml的付出表示感谢。
+> [!WARNING]
+> 说明：本项目的登录实现、封包处理、查询组合、命令字典整理版本和相关工程组织来源于 [saixiaoxi](https://github.com/oldml/saixiaoxi)，基于原python版本重写为 TypeScript，后续更新中增加了其他功能，对oldml的付出表示感谢。
 
 `Sequ` (seer-query | 赛蛆）一个可扩展的`赛尔号`数据查询服务。通过 TCP 长连接与游戏服务器通信，对外暴露基于 [Hono](https://hono.dev) 的 HTTP API，支持查询米米号信息、在线状态、战队信息、巅峰排行、投票排行等数据，类插件机制，具有良好的扩展性。
 
