@@ -3,12 +3,12 @@
 ## Commands
 
 ```bash
-pnpm dev          # Run dev server (tsx, no build step)
-pnpm build        # Compile TypeScript to dist/ (tsc)
+pnpm dev          # Run dev server (tsx — NO typecheck, just runs TS)
+pnpm build        # Compile TypeScript to dist/ (tsc — this IS your typecheck)
 pnpm start        # Build then run from dist/
-pnpm lint         # Lint with oxlint
+pnpm lint         # Lint with oxlint (linter only, no typecheck)
 pnpm lint:fix     # Lint and auto-fix
-pnpm format       # Prettier (with import sort plugin)
+pnpm format       # Prettier on src/ only (with import sort plugin)
 ```
 
 ## Project Type
