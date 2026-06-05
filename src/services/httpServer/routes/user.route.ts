@@ -8,6 +8,7 @@ import {
   getUserInfo,
   getUserOnlineStatus,
 } from '../controllers/user.controller.js';
+import { getWishInfo } from '../controllers/wish.controller.js';
 import { Hono } from 'hono';
 
 const router = new Hono();
@@ -20,5 +21,6 @@ router.get('/getVoteInfo', getVoteInfo);
 router.get('/getPeakRankInfo', getPeakRankInfo);
 
 router.get('/getBookAndAchieveRankInfo', getBookAndAchieveRankInfo);
+router.get('/getWishInfo', getWishInfo);
 
 export default router;
