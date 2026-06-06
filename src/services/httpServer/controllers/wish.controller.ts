@@ -75,15 +75,17 @@ export const getWishInfo = async (c: Context) => {
   }
   let cmdId: number;
 
-  // 说明：精灵的配表在json里已经全了，只有skin, suit, mintmark得从收包解析 许愿需要的道具数量(不理解，为什么不在json里一起配了？)
   if (typeNum === 0) {
-    // skin
+    // skin 皮肤
     cmdId = 41416;
   } else if (typeNum === 1) {
-    // suit
+    // suit 套装
     cmdId = 41418;
   } else if (typeNum === 2) {
-    // mintmark
+    // part 部件
+    cmdId = 41420;
+  } else if (typeNum === 3) {
+    // mintmark 刻印
     cmdId = 45891;
   } else {
     return c.json(
