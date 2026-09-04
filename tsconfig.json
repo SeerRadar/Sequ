@@ -4,7 +4,6 @@
     "lib": ["ES2024", "ESNext.Array", "ESNext.Collection"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
@@ -12,11 +11,9 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-
     "verbatimModuleSyntax": true,
     "noUncheckedIndexedAccess": true,
     "isolatedModules": true
