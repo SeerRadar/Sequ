@@ -15,6 +15,15 @@ const isValidAccount = (account: number): boolean => {
   return !!account && account >= MIN_ACCOUNT && account <= MAX_ACCOUNT;
 };
 
+/**
+ * 校验分页参数：非有限数、负数或 end < start 均视为非法
+ */
+const isValidPagination = (startIdx: number, endIdx: number): boolean =>
+  Number.isFinite(startIdx) &&
+  Number.isFinite(endIdx) &&
+  startIdx >= 0 &&
+  endIdx >= startIdx;
+
 const getInvalidAccountRes = (
   account: unknown,
   includeStatus = false,
@@ -31,8 +40,4 @@ const getInvalidAccountRes = (
   return res;
 };
 
-const toHexStr = (buf: Buffer | null): string => {
-  return buf ? buf.toString('hex').toUpperCase() : '';
-};
-
-export { isValidAccount, getInvalidAccountRes, toHexStr };
+export { isValidAccount, getInvalidAccountRes, isValidPagination };

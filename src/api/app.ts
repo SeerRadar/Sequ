@@ -1,4 +1,4 @@
-import userRoutes from './routes/user.route.js';
+import routes from './routes.js';
 import dayjs from 'dayjs';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -15,7 +15,7 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-app.route('/api', userRoutes);
+app.route('/api', routes);
 
 app.notFound((c) => {
   return c.json({ success: false, message: '接口不存在' }, 404);
