@@ -32,3 +32,4 @@ logs/
 node_modules/
 package-lock.json
 dist/
+.zcode/

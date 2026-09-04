@@ -1,6 +1,6 @@
 {
   "name": "seer-query",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "赛尔号TCP游戏数据查询服务，提供米米号/在线/战队/巅峰排行等HTTP API接口",
   "main": "index.js",
   "type": "module",
@@ -17,18 +17,18 @@
   "license": "GPL-3.0-only",
   "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8",
   "dependencies": {
-    "@hono/node-server": "^1.19.14",
-    "axios": "^1.17.0",
-    "dayjs": "^1.11.21",
+    "@hono/node-server": "^1.19.17",
+    "axios": "^1.20.0",
+    "dayjs": "^1.11.23",
     "dotenv": "^17.4.2",
-    "hono": "^4.12.23"
+    "hono": "^4.13.5"
   },
   "devDependencies": {
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
-    "@types/node": "^25.9.1",
-    "oxlint": "^1.68.0",
-    "prettier": "^3.8.3",
-    "tsx": "^4.22.4",
-    "typescript": "^6.0.3"
+    "@types/node": "^25.9.5",
+    "oxlint": "^1.81.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
   }
 }
