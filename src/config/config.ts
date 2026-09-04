@@ -53,6 +53,10 @@ interface Settings {
   log_full_packet: boolean;
   ignored_cmd_ids: number[];
 
+  queue_delay_ms: number;
+  queue_max_length: number;
+  queue_wait_timeout_ms: number;
+
   feishu_webhook_url: string;
   feishu_webhook_secret: string;
 }
@@ -71,6 +75,12 @@ export const settings: Settings = {
     'IGNORED_CMD_IDS',
     [8002, 3452, 2004, 2001, 41228, 1002, 2002],
   ),
+
+  // TCP 串行请求队列：游戏服务器只接受单线程访问
+  queue_delay_ms: env.number('QUEUE_DELAY_MS', 50, 0, 5000),
+  queue_max_length: env.number('QUEUE_MAX_LENGTH', 50, 1, 10000),
+  // 应小于调用方（seer-info-summary 后端）的 HTTP 超时 10s
+  queue_wait_timeout_ms: env.number('QUEUE_WAIT_TIMEOUT_MS', 8000, 1000, 60000),
 
   feishu_webhook_url: env.string('FEISHU_WEBHOOK_URL', ''),
   feishu_webhook_secret: env.string('FEISHU_WEBHOOK_SECRET', ''),
