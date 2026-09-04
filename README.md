@@ -118,13 +118,13 @@ pnpm format       # Prettier 格式化（含 import 排序）
 }
 ```
 
-### 1) GET /api/getUserOnlineStatus
+### 1) GET /api/users/:account/online-status
 
 查询米米号昵称和在线状态。
 
-| 参数    | 类型   | 必填 | 说明                            |
-| ------- | ------ | ---- | ------------------------------- |
-| account | number | 是   | 米米号，范围 50000 ~ 2000000000 |
+| 参数    | 类型   | 必填 | 说明                                        |
+| ------- | ------ | ---- | ------------------------------------------- |
+| account | number | 是   | 米米号（路径参数），范围 50000 ~ 2000000000 |
 
 成功示例：
 
@@ -142,13 +142,13 @@ pnpm format       # Prettier 格式化（含 import 排序）
 }
 ```
 
-### 2) GET /api/getUserInfo
+### 2) GET /api/users/:account
 
 查询用户详细信息（含多段原始十六进制数据）。
 
-| 参数    | 类型   | 必填 | 说明                            |
-| ------- | ------ | ---- | ------------------------------- |
-| account | number | 是   | 米米号，范围 50000 ~ 2000000000 |
+| 参数    | 类型   | 必填 | 说明                                        |
+| ------- | ------ | ---- | ------------------------------------------- |
+| account | number | 是   | 米米号（路径参数），范围 50000 ~ 2000000000 |
 
 成功示例：
 
@@ -181,13 +181,13 @@ hex 字段说明：
 | hexDatapart2  | cmd 41298 param=5           |
 | hexDataPeak   | 循环请求 cmd 40002 拼接结果 |
 
-### 3) GET /api/getTeamInfo
+### 3) GET /api/teams/:teamId
 
 查询战队信息。
 
-| 参数   | 类型   | 必填 | 说明              |
-| ------ | ------ | ---- | ----------------- |
-| teamId | number | 是   | 战队 ID（大于 0） |
+| 参数   | 类型   | 必填 | 说明                        |
+| ------ | ------ | ---- | --------------------------- |
+| teamId | number | 是   | 战队 ID（路径参数，大于 0） |
 
 成功示例：
 
@@ -203,7 +203,7 @@ hex 字段说明：
 }
 ```
 
-### 4) GET /api/getVoteInfo
+### 4) GET /api/votes
 
 查询巅峰投票排行。
 
@@ -227,19 +227,19 @@ hex 字段说明：
 }
 ```
 
-### 5) GET /api/getPeakRankInfo
+### 5) GET /api/peak/rank
 
 查询巅峰排行榜。
 
-| 参数     | 类型   | 必填 | 说明                                     |
-| -------- | ------ | ---- | ---------------------------------------- |
-| key      | number | 否   | 直接指定排行 key                         |
-| page     | number | 否   | 页面类型：1 玩家，2 精灵，3 套装，4 称号 |
-| mode     | number | 否   | 模式：0 竞技，1 狂野，2 专家，默认 0     |
-| tab      | number | 否   | 子分类索引，默认 0                       |
-| subkey   | number | 是   | 子 key                                   |
-| startIdx | number | 否   | 起始下标，默认 0                         |
-| endIdx   | number | 否   | 结束下标，默认 99                        |
+| 参数     | 类型   | 必填 | 说明                                         |
+| -------- | ------ | ---- | -------------------------------------------- |
+| key      | number | 否   | 直接指定排行 key                             |
+| page     | number | 否   | 页面类型：1 玩家，2 精灵，3 套装，4 称号     |
+| mode     | number | 否   | 模式：0 竞技，1 狂野，2 专家，3 大师，默认 0 |
+| tab      | number | 否   | 子分类索引，默认 0                           |
+| subkey   | number | 是   | 子 key                                       |
+| startIdx | number | 否   | 起始下标，默认 0                             |
+| endIdx   | number | 否   | 结束下标，默认 99                            |
 
 当 `key` 未传或非法时，服务会根据 `page`、`mode`、`tab` 自动计算。
 
@@ -260,7 +260,7 @@ hex 字段说明：
 }
 ```
 
-### 6) GET /api/getBookAndAchieveRankInfo
+### 6) GET /api/rankings/book-achievement
 
 查询图鉴或成就排行。
 
@@ -287,6 +287,61 @@ hex 字段说明：
 }
 ```
 
+### 7) GET /api/rankings/auto-card
+
+查询群星牌排行。
+
+| 参数     | 类型   | 必填 | 说明              |
+| -------- | ------ | ---- | ----------------- |
+| startIdx | number | 否   | 起始下标，默认 0  |
+| endIdx   | number | 否   | 结束下标，默认 99 |
+
+成功示例：
+
+```json
+{
+  "success": true,
+  "message": "获取成功",
+  "code": 200,
+  "data": {
+    "key": 240,
+    "subkey": 1,
+    "startIdx": 0,
+    "endIdx": 99,
+    "rankList": [{ "userid": 12345678, "score": 321, "nick": "玩家昵称" }]
+  }
+}
+```
+
+### 8) GET /api/wishes
+
+查询周年庆许愿信息。
+
+| 参数 | 类型   | 必填 | 说明                           |
+| ---- | ------ | ---- | ------------------------------ |
+| type | number | 是   | 0 皮肤，1 套装，2 部件，3 刻印 |
+
+成功示例：
+
+```json
+{
+  "success": true,
+  "message": "获取成功",
+  "code": 200,
+  "data": {
+    "list": [
+      {
+        "wishitemId": 1001,
+        "wishitemIsHave": 1,
+        "wishitemCurProgress": 50,
+        "wishitemMaxProgress": 100,
+        "wishitemPrayPop": []
+      }
+    ]
+  }
+}
+```
+
 ## 项目结构
 
 ```text
@@ -294,36 +349,40 @@ src/
   index.ts                            # 入口：tcpService.init() → HTTP 服务
   config/
     config.ts                         # 环境变量加载 + Settings 配置导出
-  core/
-    encrypt.ts                        # 封包加解密（密钥初始化、result 计算）
-    login.ts                          # 账号登录：获取 session、TCP 建连、拼装登录包
-  pkg/
-    receive.ts                        # 接收封包解析
-    send.ts                           # 封包发送处理
-  services/
-    tcpService.ts                     # TCP 生命周期管理（连接、心跳、重连）
-    httpServer/
-      app.ts                          # Hono 应用实例（CORS、日志、路由挂载）
-      routes/
-        user.route.ts                 # /api/* 路由定义
-      controllers/
-        user.controller.ts            # 用户 / 在线状态接口
-        peak.controller.ts            # 巅峰排行 / 投票接口
-        rank.controller.ts            # 图鉴 / 成就排行接口
-  utils/
-    commandDict.ts                    # 命令 ID ↔ 名称映射
-    http/
-      fetchData.ts                    # 维护公告抓取
-      httpUtil.ts                     # HTTP 工具
-      reply.ts                        # 统一响应构建
-    pkg/
-      builder.ts                      # 封包构建
-      format.ts                       # 封包格式化
-      parser.ts                       # 封包解析
-      protocol.ts                     # 协议常量（HEADER_SIZE 等）
-      reader.ts                       # 封包读取
-    webHook/
-      feishu.ts                       # 飞书 Webhook 推送
+  game/                               # 游戏服务器 TCP 通信域
+    crypto.ts                         # 封包加解密（Algorithms：密钥初始化、result 计算）
+    bootstrap/
+      login.ts                        # 账号登录：获取 session、TCP 建连、拼装登录包
+      serverList.ts                   # 服务器列表发现（onlineID / IP / 端口）
+    packet/                           # 封包二进制编解码原语
+      protocol.ts                     # 协议常量（HEADER_SIZE 等）+ parsePacket
+      builder.ts                      # 封包构建（PacketBuilder）
+      reader.ts                       # 封包顺序读取（BufferReader）
+      format.ts                       # 封包格式化 / hex 转换
+      parser.ts                       # 通用响应结构解析（parseRankList 等）
+      commands.ts                     # 命令 ID ↔ 名称映射
+      Command.json                    # 命令字典数据
+    transport/
+      sender.ts                       # 封包发送处理（加密、组包、写 socket）
+      receiver.ts                     # 封包接收解析（拆流、按 cmdId 匹配响应、维护通知）
+    queue.ts                          # TCP 串行请求队列（单飞行、排队超时、统计）
+    maintenance.ts                    # 维护公告探测（重连前检查）
+    client.ts                         # TCP 生命周期单例 tcpService（连接、心跳、重连）
+  api/                                # 对外 HTTP API 域
+    app.ts                            # Hono 应用实例（CORS、请求日志、路由挂载）
+    routes.ts                         # /api/* 全部路由定义
+    controllers/
+      user.controller.ts              # 用户 / 在线状态 / 背包精灵 / 战队接口
+      peak.controller.ts              # 巅峰排行 / 投票接口
+      history.controller.ts           # 巅峰对战历史接口
+      rank.controller.ts              # 图鉴成就 / 自动精灵卡排行接口
+      wish.controller.ts              # 许愿信息接口
+      packet.controller.ts            # 原始封包发送接口
+    helpers/
+      reply.ts                        # 统一响应构建（success / fail / badRequest 等）
+      validate.ts                     # 米米号参数校验
+  notifications/
+    feishu.ts                         # 飞书 Webhook 推送
 ```
 
 ## 开发说明
