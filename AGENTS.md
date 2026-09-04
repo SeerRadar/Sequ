@@ -40,13 +40,18 @@ pnpm format       # Prettier on src/ only (with import sort plugin)
 ## Architecture
 
 ```
-src/index.ts          — bootstrap: tcpService.init() then HTTP server
-src/config/config.ts   — env loading + Settings export
-src/core/              — encryption + login logic
-src/pkg/               — TCP packet send/receive
-src/services/tcpService.ts — TCP connection lifecycle (connect, heartbeat, reconnect)
-src/services/httpServer/   — Hono app, routes, controllers
-src/utils/             — helpers: http, packet building, webhook, etc.
+src/index.ts                  — bootstrap: tcpService.init() then HTTP server
+src/config/config.ts          — env loading + Settings export
+src/game/                     — game-server TCP communication domain
+  crypto.ts                   — packet encryption (Algorithms)
+  bootstrap/                  — login session + server-list discovery
+  packet/                     — binary packet codec primitives, command dict, Command.json
+  transport/                  — sender/receiver engine over the socket
+  queue.ts                    — serial request queue (single-flight game access)
+  maintenance.ts              — unity maintenance-notice probe
+  client.ts                   — TCP lifecycle: tcpService singleton (connect, heartbeat, reconnect)
+src/api/                      — Hono HTTP layer: app.ts, routes.ts, controllers/, helpers/ (reply + account validation)
+src/notifications/feishu.ts   — Feishu webhook alerting
 ```
 
 ## Testing
