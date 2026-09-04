@@ -1,16 +1,15 @@
 import { settings } from '../config/config.js';
-import { Algorithms } from '../core/encrypt.js';
-import { Login } from '../core/login.js';
-import { ReceivePacketAnalysis } from '../pkg/receive.js';
-import { SendPacketProcessing } from '../pkg/send.js';
-import {
-  getUnityNoticeInfo,
-  parseUnityNotice,
-} from '../utils/http/fetchData.js';
-import { PacketBuilder } from '../utils/pkg/builder.js';
-import { buildPacket } from '../utils/pkg/builder.js';
-import { HEADER_SIZE } from '../utils/pkg/protocol.js';
-import { sendTextMessage } from '../utils/webHook/feishu.js';
+import { sendTextMessage } from '../notifications/feishu.js';
+import { Login } from './bootstrap/login.js';
+import { Algorithms } from './crypto.js';
+import { getUnityNoticeInfo, parseUnityNotice } from './maintenance.js';
+import { PacketBuilder } from './packet/builder.js';
+import { buildPacket } from './packet/builder.js';
+import { HEADER_SIZE, OFF_CMD_ID } from './packet/protocol.js';
+import { QueueWaitTimeoutError, SerialRequestQueue } from './queue.js';
+import type { QueueStats } from './queue.js';
+import { ReceivePacketAnalysis } from './transport/receiver.js';
+import { SendPacketProcessing } from './transport/sender.js';
 import dayjs from 'dayjs';
 
 const RECONNECT_BASE_MS = 4000;
@@ -19,6 +18,9 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const MAINTENANCE_CHECK_MS = 60000;
 const KEY_INIT_DELAY_MS = 5000;
 const HEARTBEAT_MS = 5 * 60 * 1000;
+const QUEUE_ALERT_MAX_DEPTH = 30;
+const QUEUE_ALERT_MAX_WAIT_MS = 5000;
+const QUEUE_ALERT_INTERVAL_MS = 10 * 60 * 1000;
 
 enum State {
   Initial,
@@ -34,6 +36,16 @@ export class TCPService {
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private reconnectFailure: Error | null = null;
   private reconnectAttempts: number = 0;
+
+  private queue = new SerialRequestQueue<Buffer | null>({
+    name: 'tcp',
+    delayMs: settings.queue_delay_ms,
+    maxLength: settings.queue_max_length,
+    waitTimeoutMs: settings.queue_wait_timeout_ms,
+    onMinute: (stats) => this._onQueueMinute(stats),
+  });
+
+  private lastQueueAlertAt = 0;
 
   private readyWaiters: Array<{
     resolve: () => void;
@@ -51,6 +63,11 @@ export class TCPService {
     if (level === 'err') console.error(prefix, ...args);
     else if (level === 'warn') console.warn(prefix, ...args);
     else console.log(prefix, ...args);
+  }
+
+  /** 独立方法读取状态：绕过 TS 对 this.state 的窄化，确保 await 之后重新取值 */
+  private _isShutdown(): boolean {
+    return this.state === State.Shutdown;
   }
 
   private _cleanup(): void {
@@ -80,14 +97,40 @@ export class TCPService {
     for (const w of waiters) w.reject(err);
   }
 
-  private _waitUntilReady(): Promise<void> {
+  private _waitUntilReady(timeoutMs?: number): Promise<void> {
     if (this.state === State.Ready) return Promise.resolve();
     if (this.state !== State.Reconnecting && this.reconnectFailure) {
       return Promise.reject(this.reconnectFailure);
     }
-    return new Promise((resolve, reject) =>
-      this.readyWaiters.push({ resolve, reject }),
-    );
+
+    return new Promise((resolve, reject) => {
+      let timer: NodeJS.Timeout | null = null;
+      const waiter = {
+        resolve: () => {
+          if (timer) clearTimeout(timer);
+          resolve();
+        },
+        reject: (reason?: any) => {
+          if (timer) clearTimeout(timer);
+          reject(reason);
+        },
+      };
+
+      // 超时后把等待者移出列表，避免故障期间等待者无限堆积
+      if (timeoutMs) {
+        timer = setTimeout(() => {
+          const idx = this.readyWaiters.indexOf(waiter);
+          if (idx !== -1) this.readyWaiters.splice(idx, 1);
+          reject(
+            new QueueWaitTimeoutError(
+              `等待 TCP 就绪超时(>${timeoutMs}ms)，请稍后重试`,
+            ),
+          );
+        }, timeoutMs);
+      }
+
+      this.readyWaiters.push(waiter);
+    });
   }
 
   private _alert(msg: string): void {
@@ -96,6 +139,60 @@ export class TCPService {
     void task.catch((err) =>
       console.error('【飞书】告警发送失败:', (err as Error).message),
     );
+  }
+
+  private _onMaintenanceNotice(remainSec: number): void {
+    const minutes = Math.ceil(remainSec / 60);
+    const msg =
+      minutes > 60
+        ? `服务器维护通知：约 ${Math.floor(minutes / 60)} 小时后关服`
+        : `服务器维护通知：${minutes} 分钟后关服`;
+    this._alert(msg);
+  }
+
+  private _onQueueMinute(stats: QueueStats): void {
+    // 空闲周期不打日志，避免长期输出全零行
+    if (
+      stats.depth === 0 &&
+      stats.executed === 0 &&
+      stats.failed === 0 &&
+      stats.waitTimeout === 0
+    ) {
+      return;
+    }
+
+    this._log(
+      'info',
+      `【队列】深度:${stats.depth} 执行:${stats.executed} 失败:${stats.failed} ` +
+        `排队超时:${stats.waitTimeout} 平均等待:${stats.avgWaitMs}ms ` +
+        `最大等待:${stats.maxWaitMs}ms 峰值深度:${stats.maxDepth}`,
+    );
+
+    if (
+      stats.maxDepth < QUEUE_ALERT_MAX_DEPTH &&
+      stats.maxWaitMs < QUEUE_ALERT_MAX_WAIT_MS
+    ) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - this.lastQueueAlertAt < QUEUE_ALERT_INTERVAL_MS) return;
+    this.lastQueueAlertAt = now;
+
+    this._alert(
+      `【seer-query 告警】TCP 请求队列拥堵\n` +
+        `时间: ${this._ts()}\n` +
+        `峰值深度: ${stats.maxDepth}\n` +
+        `最大等待: ${stats.maxWaitMs}ms\n` +
+        `排队超时: ${stats.waitTimeout}`,
+    );
+  }
+
+  private _flushQueue(reason: string, error: Error): void {
+    const flushed = this.queue.flush(error);
+    if (flushed > 0) {
+      this._log('warn', `【队列】${reason}，已拒绝 ${flushed} 个排队请求`);
+    }
   }
 
   // ---------- connection life cycle ----------
@@ -108,7 +205,7 @@ export class TCPService {
       console.error(
         `初始化连接失败: ${(error as Error).message}，准备进入重连流程...`,
       );
-      this._startReconnect();
+      this._doStartReconnect();
       await this._waitUntilReady();
     }
   }
@@ -143,19 +240,26 @@ export class TCPService {
         this._log('warn', '【系统】网络连接已断开，准备重连...');
         this._startReconnect();
       },
+      maintenanceCallback: (remainSec) => this._onMaintenanceNotice(remainSec),
       logFullPacket: settings.log_full_packet,
       ignoredCmdIds: settings.ignored_cmd_ids,
     });
 
     await new Promise((resolve) => setTimeout(resolve, KEY_INIT_DELAY_MS));
 
-    if ((this.state as State) === State.Shutdown) {
+    if (this.state !== State.Initial) {
       this._cleanup();
-      throw new Error('TCP 服务已关闭，中止连接建立');
+      throw new Error('TCP 连接在初始化期间被中断');
+    }
+
+    if (!this.sender?.isConnected()) {
+      this._cleanup();
+      throw new Error('TCP 连接在初始化期间断开');
     }
 
     this.state = State.Ready;
     this._log('info', 'TCP 初始化完成，密钥就绪！');
+    this._notifyReady();
     this._startHeartbeat();
   }
 
@@ -190,9 +294,17 @@ export class TCPService {
   // ---------- reconnect ----------
 
   private _startReconnect(): void {
-    if (this.state === State.Shutdown || this.state === State.Reconnecting) {
+    if (
+      this.state === State.Shutdown ||
+      this.state === State.Reconnecting ||
+      this.state === State.Initial
+    ) {
       return;
     }
+    this._doStartReconnect();
+  }
+
+  private _doStartReconnect(): void {
     this.state = State.Reconnecting;
     this.reconnectFailure = null;
     this._stopHeartbeat();
@@ -224,7 +336,7 @@ export class TCPService {
         this._notifyReady();
         return;
       } catch (error) {
-        if ((this.state as State) === State.Shutdown) return;
+        if (this._isShutdown()) return;
 
         if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
           const finalError = new Error(
@@ -240,6 +352,9 @@ export class TCPService {
           this.state = State.Initial;
           this.reconnectFailure = finalError;
           this._notifyFailed(finalError);
+
+          this._flushQueue('重连终止', finalError);
+
           throw finalError;
         }
 
@@ -274,13 +389,36 @@ export class TCPService {
 
   // ---------- public api ----------
 
+  /**
+   * 发送封包并等待响应。所有请求经由全局串行队列：
+   * 同一时间至多一个在途请求，相邻请求完成之间保持
+   * settings.queue_delay_ms 间隔。
+   * 就绪等待放在队列之外：重连/维护期间不占用队列槽位，
+   * 且与排队等待共享 settings.queue_wait_timeout_ms 上限，
+   * 故障期间调用方在该时限内得到明确错误。
+   */
   async sendAndReceive(
     pktOrHex: PacketBuilder | string,
     timeout = 5000,
   ): Promise<Buffer | null> {
     const hexPkt = typeof pktOrHex === 'string' ? pktOrHex : pktOrHex.build();
+
+    if (this.state !== State.Ready) {
+      if (this.state === State.Shutdown) {
+        throw new Error('TCP 服务已关闭');
+      }
+      await this._waitUntilReady(settings.queue_wait_timeout_ms);
+    }
+
+    return this.queue.add(() => this._sendAndReceiveOnce(hexPkt, timeout));
+  }
+
+  private async _sendAndReceiveOnce(
+    hexPkt: string,
+    timeout: number,
+  ): Promise<Buffer | null> {
     const pktBuf = Buffer.from(hexPkt, 'hex');
-    const cmdId = pktBuf.readUInt32BE(5);
+    const cmdId = pktBuf.readUInt32BE(OFF_CMD_ID);
 
     const doSend = async (): Promise<Buffer | null> => {
       if (!this.sender || !this.receiver) {
@@ -296,27 +434,28 @@ export class TCPService {
       return data?.subarray(HEADER_SIZE) ?? null;
     };
 
-    if (this.state !== State.Ready) {
-      if (this.state === State.Shutdown) {
-        throw new Error('TCP 服务已关闭');
-      }
-      this._startReconnect();
-      await this._waitUntilReady();
+    if (this.state === State.Shutdown) {
+      throw new Error('TCP 服务已关闭');
     }
 
     try {
       return await doSend();
     } catch (error) {
-      if ((this.state as State) === State.Shutdown) throw error;
+      if (this._isShutdown()) throw error;
 
       const msg = (error as Error).message;
+      // 'TCP 未初始化'：排队/执行间隙连接断开导致发送器被清理，
+      // 与断线错误同样走"重连等待后重试"，不再在发送前单独阻塞等就绪
       const retryable =
-        msg.includes('Socket连接已断开') || msg.includes('封包发送失败');
+        msg.includes('Socket连接已断开') ||
+        msg.includes('封包发送失败') ||
+        msg.includes('TCP 未初始化');
 
       if (!retryable) throw error;
 
       this._log('warn', `【发送】连接异常，重连重试: ${msg}`);
       this._startReconnect();
+      // 透明重试：等待重连完成后重发（期间持有队列槽位，属固有开销）
       await this._waitUntilReady();
       return doSend();
     }
@@ -330,6 +469,9 @@ export class TCPService {
 
     const waiters = this.readyWaiters.splice(0);
     for (const w of waiters) w.reject(this.reconnectFailure);
+
+    this._flushQueue('服务关闭', this.reconnectFailure);
+    this.queue.dispose();
 
     this._log('info', 'TCP 服务已关闭');
   }
