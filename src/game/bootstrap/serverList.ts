@@ -1,9 +1,9 @@
-import { settings } from '../config/config.js';
-import { PacketBuilder } from '../utils/pkg/builder.js';
-import { HEADER_SIZE } from '../utils/pkg/protocol.js';
-import { BufferReader } from '../utils/pkg/reader.js';
+import { settings } from '../../config/config.js';
+import { PacketBuilder } from '../packet/builder.js';
+import { HEADER_SIZE } from '../packet/protocol.js';
+import { BufferReader } from '../packet/reader.js';
+import { connectSocket } from './connect.js';
 import axios from 'axios';
-import net from 'net';
 
 const UNITY_IP_URL = 'https://seer-login-ip.61.com/unity-ip.txt';
 const DEFAULT_SVR = { ip: '175.24.235.221', port: 1864 };
@@ -33,11 +33,11 @@ export class Svr {
         port: settings.game_server_port,
       };
     }
-    const idx = Math.floor(Math.random() * servers.length);
+    const server = servers[Math.floor(Math.random() * servers.length)]!;
     return {
-      onlineID: servers[idx]!.onlineID,
-      ip: servers[idx]!.ip,
-      port: servers[idx]!.port,
+      onlineID: server.onlineID,
+      ip: server.ip,
+      port: server.port,
     };
   }
 
@@ -154,29 +154,9 @@ export class Svr {
     }
   }
 
-  private async connectToGameServer(): Promise<net.Socket> {
+  private async connectToGameServer() {
     const { ip, port } = await this.getGameServerIp();
-    return new Promise((resolve, reject) => {
-      const socket = new net.Socket();
-
-      const onError = (err: Error) => {
-        clearTimeout(connectTimeout);
-        reject(err);
-      };
-
-      const connectTimeout = setTimeout(() => {
-        socket.removeListener('error', onError);
-        socket.destroy();
-        reject(new Error('TCP 连接超时 (10s)'));
-      }, CONNECT_TIMEOUT_MS);
-
-      socket.connect(port, ip, () => {
-        clearTimeout(connectTimeout);
-        socket.removeListener('error', onError);
-        resolve(socket);
-      });
-      socket.on('error', onError);
-    });
+    return connectSocket(ip, port, CONNECT_TIMEOUT_MS);
   }
 
   private async getGameServerIp(): Promise<{ ip: string; port: number }> {

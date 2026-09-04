@@ -1,4 +1,4 @@
-import { settings } from '../../config/config.js';
+import { settings } from '../config/config.js';
 import axios from 'axios';
 import crypto from 'crypto';
 
@@ -7,8 +7,12 @@ const secret: string = settings.feishu_webhook_secret;
 
 interface WebhookResult {
   success: boolean;
-  data?: any;
   error?: string;
+}
+
+interface TextMessagePayload {
+  msg_type: 'text';
+  content: { text: string };
 }
 
 /**
@@ -29,7 +33,7 @@ function genSign(secret: string): { timestamp: number; sign: string } {
 /**
  * 发送 webhook
  */
-async function sendWebhook(body: Record<string, any>): Promise<WebhookResult> {
+async function sendWebhook(body: TextMessagePayload): Promise<WebhookResult> {
   try {
     if (!webhookUrl || !secret) {
       console.warn('Feishu webhook not configured');
@@ -38,30 +42,31 @@ async function sendWebhook(body: Record<string, any>): Promise<WebhookResult> {
 
     const { timestamp, sign } = genSign(secret);
 
-    const payload = {
+    const { data } = await axios.post<{ code: number }>(webhookUrl, {
       timestamp,
       sign,
       ...body,
-    };
-
-    const { data } = await axios.post(webhookUrl, payload);
+    });
 
     if (data.code !== 0) {
       console.error('Feishu error:', data);
-      return { success: false, data };
+      return { success: false };
     }
 
-    return { success: true, data };
-  } catch (err: any) {
-    console.error('Feishu request error:', err.message);
-    return { success: false, error: err.message };
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('Feishu request error:', message);
+    return { success: false, error: message };
   }
 }
 
 /**
- * 文本
+ * 发送文本消息
  */
-export function sendTextMessage(text: string) {
+export function sendTextMessage(
+  text: string,
+): Promise<WebhookResult> | undefined {
   if (!text) return;
 
   return sendWebhook({

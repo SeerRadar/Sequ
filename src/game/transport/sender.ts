@@ -1,5 +1,5 @@
-import { Algorithms } from '../core/encrypt.js';
-import { getCommandName } from '../utils/commandDict.js';
+import { Algorithms } from '../crypto.js';
+import { getCommandName } from '../packet/commands.js';
 import {
   OFF_CMD_ID,
   OFF_LENGTH,
@@ -7,8 +7,7 @@ import {
   cleanHex,
   parsePacket,
   validateHex,
-} from '../utils/pkg/protocol.js';
-import type { ReceivePacketAnalysis } from './receive.js';
+} from '../packet/protocol.js';
 import net from 'net';
 
 type MessageCallback = (message: string) => void;
@@ -31,10 +30,6 @@ export class SendPacketProcessing {
 
     this.userId = Buffer.allocUnsafe(4);
     this.userId.writeUInt32BE(userid, 0);
-  }
-
-  parsePacket(buf: Buffer) {
-    return parsePacket(buf);
   }
 
   groupPacket(hex: string): Buffer | null {
@@ -107,31 +102,6 @@ export class SendPacketProcessing {
     }
   }
 
-  async sendAndReceive(
-    packedMessage: string,
-    receiver: ReceivePacketAnalysis,
-    expectedCmdId?: number,
-    timeout: number = 5000,
-  ): Promise<Buffer | null> {
-    const assembledPacket = this.groupPacket(packedMessage);
-    if (!assembledPacket) return null;
-
-    let waitCmdId = expectedCmdId;
-    if (waitCmdId === undefined) {
-      const raw = Buffer.from(cleanHex(packedMessage), 'hex');
-      if (raw.length < 9) {
-        throw new Error('无法确定需要等待的 Command ID');
-      }
-      waitCmdId = raw.readUInt32BE(OFF_CMD_ID);
-    }
-
-    const receivePromise = receiver.waitForSpecificData(waitCmdId, timeout);
-
-    await this.writeToSocket(assembledPacket);
-
-    return receivePromise;
-  }
-
   private writeToSocket(data: Buffer): Promise<boolean> {
     return new Promise((resolve, reject) => {
       if (!this.isConnected()) {
@@ -147,10 +117,6 @@ export class SendPacketProcessing {
         }
       });
     });
-  }
-
-  setMessageCallback(callback: MessageCallback): void {
-    this.messageCallback = callback;
   }
 
   isConnected(): boolean {

@@ -45,53 +45,13 @@ class BufferReader {
     this._offset += bytes;
   }
 
-  hasRemaining(size?: number): boolean {
-    if (size === undefined) {
-      return this._offset < this.buffer.length;
-    }
-    return this._offset + size <= this.buffer.length;
-  }
-
-  getRemainingBytes(): number {
-    return Math.max(0, this.buffer.length - this._offset);
-  }
-
-  getOffset(): number {
-    return this._offset;
-  }
-
-  setOffset(offset: number): void {
-    if (offset < 0 || offset > this.buffer.length) {
-      throw new Error(
-        `Invalid offset: ${offset}, buffer length: ${this.buffer.length}`,
-      );
-    }
-    this._offset = offset;
-  }
-
-  getLength(): number {
-    return this.buffer.length;
-  }
-
   private checkRemaining(requiredBytes: number, operation: string): void {
-    const remaining = this.getRemainingBytes();
+    const remaining = this.buffer.length - this._offset;
     if (remaining < requiredBytes) {
       throw new Error(
         `Buffer underflow in ${operation}: required ${requiredBytes} bytes, but only ${remaining} bytes remaining (offset: ${this._offset}, length: ${this.buffer.length})`,
       );
     }
-  }
-
-  safeRead<T>(readFn: () => T, defaultValue: T): T {
-    try {
-      return readFn();
-    } catch {
-      return defaultValue;
-    }
-  }
-
-  reset(): void {
-    this._offset = 0;
   }
 }
 

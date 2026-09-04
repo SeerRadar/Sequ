@@ -1,5 +1,5 @@
-import { Algorithms } from '../core/encrypt.js';
-import { getCommandName } from '../utils/commandDict.js';
+import { Algorithms } from '../crypto.js';
+import { getCommandName } from '../packet/commands.js';
 import {
   CMD_KEY_INIT,
   CMD_MAINTENANCE,
@@ -9,9 +9,7 @@ import {
   OFF_LENGTH,
   type ParsedPacket,
   parsePacket,
-} from '../utils/pkg/protocol.js';
-import { sendTextMessage } from '../utils/webHook/feishu.js';
-import { EventEmitter } from 'events';
+} from '../packet/protocol.js';
 import net from 'net';
 
 export interface ReceivePacketOptions {
@@ -20,19 +18,20 @@ export interface ReceivePacketOptions {
   userId: number;
   messageCallback?: (msg: string) => void;
   disconnectCallback?: () => Promise<void> | void;
+  /** 收到服务器维护通知时回调（剩余秒数），由连接所有者决定告警方式 */
+  maintenanceCallback?: (remainSec: number) => void;
   logFullPacket?: boolean;
-  ignoredCmdIds?: number[];
+  ignoredCmdIds: number[];
 }
 
-const DEFAULT_IGNORED_CMD_IDS = [8002, 3452, 2004, 2001, 41228, 1002, 2002];
-
-export class ReceivePacketAnalysis extends EventEmitter {
+export class ReceivePacketAnalysis {
   private algorithms: Algorithms;
   private tcpSocket: net.Socket;
   private userid: number;
 
   private messageCallback?: (msg: string) => void;
   private disconnectCallback?: () => Promise<void> | void;
+  private maintenanceCallback?: (remainSec: number) => void;
 
   private waiters: Map<number, Array<(value: Buffer | null) => void>> =
     new Map();
@@ -45,16 +44,14 @@ export class ReceivePacketAnalysis extends EventEmitter {
   private ignoredCmdIds: Set<number>;
 
   constructor(options: ReceivePacketOptions) {
-    super();
     this.algorithms = options.algorithms;
     this.tcpSocket = options.tcpSocket;
     this.userid = options.userId;
     this.messageCallback = options.messageCallback;
     this.disconnectCallback = options.disconnectCallback;
+    this.maintenanceCallback = options.maintenanceCallback;
     this.logFullPacket = options.logFullPacket ?? false;
-    this.ignoredCmdIds = new Set(
-      options.ignoredCmdIds ?? DEFAULT_IGNORED_CMD_IDS,
-    );
+    this.ignoredCmdIds = new Set(options.ignoredCmdIds);
 
     this._setupSocketListeners();
   }
@@ -91,7 +88,6 @@ export class ReceivePacketAnalysis extends EventEmitter {
       this.disconnectHandled = true;
       await this.disconnectCallback();
     }
-    this.emit('error', error);
   }
 
   private async _onSocketClose(): Promise<void> {
@@ -103,7 +99,6 @@ export class ReceivePacketAnalysis extends EventEmitter {
       this.disconnectHandled = true;
       await this.disconnectCallback();
     }
-    this.emit('close');
   }
 
   private _processBuffer(): void {
@@ -140,8 +135,6 @@ export class ReceivePacketAnalysis extends EventEmitter {
   }
 
   private _handlePacket(packet: ParsedPacket): void {
-    const commandName = getCommandName(packet.cmdId);
-
     if (packet.cmdId === CMD_MAINTENANCE) {
       this._handleServerMaintenance(packet);
     }
@@ -158,12 +151,6 @@ export class ReceivePacketAnalysis extends EventEmitter {
     if (packet.cmdId === CMD_KEY_INIT) {
       this._handleKeyInit(packet);
     }
-
-    this.emit('packet', {
-      commandId: packet.cmdId,
-      commandName,
-      packetData: packet.raw,
-    });
   }
 
   private _logReceive(packet: ParsedPacket): void {
@@ -199,19 +186,7 @@ export class ReceivePacketAnalysis extends EventEmitter {
 
     if (remainSec <= 0) return;
 
-    this.emit('server:maintenance', {
-      timestamp: ts,
-      remainSec,
-    });
-
-    const minutes = Math.ceil(remainSec / 60);
-
-    const msg =
-      minutes > 60
-        ? `服务器维护通知：约 ${Math.floor(minutes / 60)} 小时后关服`
-        : `服务器维护通知：${minutes} 分钟后关服`;
-
-    sendTextMessage(msg);
+    this.maintenanceCallback?.(remainSec);
   }
 
   async waitForSpecificData(

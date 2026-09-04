@@ -1,4 +1,3 @@
-import { format02X, format04X, format08X, formatBuffer } from './format.js';
 import { PROTO_VERSION } from './protocol.js';
 
 export function buildPacket(cmdId: number, ...params: number[]): string {
@@ -30,50 +29,13 @@ export class PacketBuilder {
     return this;
   }
 
-  setVersion(version: number): this {
-    this.version = version;
-    return this;
-  }
-
   /**
    * 添加 4 字节整数到包体 (大端序)
    */
-  addU32(value: number, debug: boolean = false): this {
+  addU32(value: number): this {
     const buffer = Buffer.allocUnsafe(4);
     buffer.writeUInt32BE(value, 0);
     this.bodyParts.push(buffer);
-
-    if (debug) {
-      console.log(`添加 UInt32: ${value} (0x${format08X(value)})`);
-    }
-    return this;
-  }
-
-  /**
-   * 添加 2 字节整数到包体 (大端序)
-   */
-  addU16(value: number, debug: boolean = false): this {
-    const buffer = Buffer.allocUnsafe(2);
-    buffer.writeUInt16BE(value, 0);
-    this.bodyParts.push(buffer);
-
-    if (debug) {
-      console.log(`添加 UInt16: ${value} (0x${format04X(value)})`);
-    }
-    return this;
-  }
-
-  /**
-   * 添加 1 字节整数到包体
-   */
-  addU8(value: number, debug: boolean = false): this {
-    const buffer = Buffer.allocUnsafe(1);
-    buffer.writeUInt8(value, 0);
-    this.bodyParts.push(buffer);
-
-    if (debug) {
-      console.log(`添加 UInt8: ${value} (0x${format02X(value)})`);
-    }
     return this;
   }
 
@@ -96,7 +58,7 @@ export class PacketBuilder {
   /**
    * 构建完整数据包的十六进制字符串（供 SendPacketProcessing.sendPacket 使用）
    */
-  build(debug: boolean = false): string {
+  build(): string {
     const bodyLength = this.bodyParts.reduce(
       (sum, part) => sum + part.length,
       0,
@@ -124,7 +86,6 @@ export class PacketBuilder {
         ? Buffer.concat(this.bodyParts)
         : Buffer.alloc(0);
 
-    // 构建完整数据包
     const packet = Buffer.concat([
       lengthBuffer,
       versionBuffer,
@@ -134,30 +95,6 @@ export class PacketBuilder {
       body,
     ]);
 
-    if (debug) {
-      console.log('=== 构建的数据包 ===');
-      console.log(`Length:  0x${format08X(this.length)}`);
-      console.log(`Version: 0x${format02X(this.version)}`);
-      console.log(`CmdId:   0x${format08X(this.cmdId)}`);
-      console.log(`UserId:  0x${format08X(this.userId)}`);
-      console.log(`Result:  0x${format08X(this.result)}`);
-      console.log(`Body:    ${formatBuffer(body, 4, ' ')}`);
-      console.log(`完整包:  ${formatBuffer(packet, 4, ' ')}`);
-    }
-
     return packet.toString('hex').toUpperCase();
-  }
-
-  /**
-   * 重置 Builder 状态
-   */
-  reset(): this {
-    this.length = 0;
-    this.version = PROTO_VERSION;
-    this.cmdId = 0;
-    this.userId = 0;
-    this.result = 0;
-    this.bodyParts = [];
-    return this;
   }
 }

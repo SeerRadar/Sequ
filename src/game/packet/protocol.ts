@@ -19,7 +19,6 @@ export interface ParsedPacket {
   cmdId: number;
   userId: number;
   result: number;
-  header: Buffer;
   body: Buffer;
   raw: Buffer;
 }
@@ -32,10 +31,9 @@ export function parsePacket(buf: Buffer): ParsedPacket | null {
   const cmdId = buf.readUInt32BE(OFF_CMD_ID);
   const userId = buf.readUInt32BE(OFF_USER_ID);
   const result = buf.readUInt32BE(OFF_RESULT);
-  const header = buf.subarray(0, HEADER_SIZE);
   const body = buf.subarray(HEADER_SIZE);
 
-  return { length, version, cmdId, userId, result, header, body, raw: buf };
+  return { length, version, cmdId, userId, result, body, raw: buf };
 }
 
 export function validateHex(hex: string): boolean {
