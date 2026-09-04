@@ -1,6 +1,6 @@
+import { app } from './api/app.js';
 import { settings } from './config/config.js';
-import { app } from './services/httpServer/app.js';
-import { tcpService } from './services/tcpService.js';
+import { tcpService } from './game/client.js';
 import { serve } from '@hono/node-server';
 
 process.title = 'seer-query';
