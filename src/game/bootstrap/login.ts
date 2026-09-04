@@ -1,5 +1,6 @@
-import { PacketBuilder } from '../utils/pkg/builder.js';
-import { Svr } from './svr.js';
+import { PacketBuilder } from '../packet/builder.js';
+import { connectSocket } from './connect.js';
+import { Svr } from './serverList.js';
 import axios from 'axios';
 import crypto from 'crypto';
 import net from 'net';
@@ -29,10 +30,11 @@ export class Login {
       const svrInfo = await svr.getSvrInfo();
       console.log(`获取 svrInfo 成功: ${JSON.stringify(svrInfo, null, 2)}`);
 
-      const socket = await this.connectSocket({
-        ip: svrInfo.ip,
-        port: svrInfo.port,
-      });
+      const socket = await connectSocket(
+        svrInfo.ip,
+        svrInfo.port,
+        CONNECT_TIMEOUT_MS,
+      );
 
       const loginPacket = this.buildLoginPacket(
         userIdNum,
@@ -47,36 +49,6 @@ export class Login {
       console.error('Connection error:', error);
       throw error;
     }
-  }
-
-  private connectSocket({
-    ip,
-    port,
-  }: {
-    ip: string;
-    port: number;
-  }): Promise<net.Socket> {
-    return new Promise((resolve, reject) => {
-      const socket = new net.Socket();
-
-      const onError = (err: Error) => {
-        clearTimeout(connectTimeout);
-        reject(err);
-      };
-
-      const connectTimeout = setTimeout(() => {
-        socket.removeListener('error', onError);
-        socket.destroy();
-        reject(new Error('TCP 连接超时 (10s)'));
-      }, CONNECT_TIMEOUT_MS);
-
-      socket.connect(port, ip, () => {
-        clearTimeout(connectTimeout);
-        socket.removeListener('error', onError);
-        resolve(socket);
-      });
-      socket.on('error', onError);
-    });
   }
 
   private async fetchSessionToken(

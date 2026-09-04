@@ -1,4 +1,4 @@
-import CommandData from '../config/Command.json' with { type: 'json' };
+import CommandData from './Command.json' with { type: 'json' };
 
 let _commandDict: Record<string, string> | null = null;
 
