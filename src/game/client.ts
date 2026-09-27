@@ -1,3 +1,4 @@
+import type { RegionCredentials } from '../config/config.js';
 import { settings } from '../config/config.js';
 import { sendTextMessage } from '../notifications/feishu.js';
 import { Login } from './bootstrap/login.js';
@@ -5,9 +6,10 @@ import { Algorithms } from './crypto.js';
 import { getUnityNoticeInfo, parseUnityNotice } from './maintenance.js';
 import { PacketBuilder } from './packet/builder.js';
 import { buildPacket } from './packet/builder.js';
-import { HEADER_SIZE, OFF_CMD_ID } from './packet/protocol.js';
+import { CMD_LOGIN_IN, HEADER_SIZE, OFF_CMD_ID } from './packet/protocol.js';
 import { QueueWaitTimeoutError, SerialRequestQueue } from './queue.js';
 import type { QueueStats } from './queue.js';
+import type { RegionProfile } from './region.js';
 import { ReceivePacketAnalysis } from './transport/receiver.js';
 import { SendPacketProcessing } from './transport/sender.js';
 import dayjs from 'dayjs';
@@ -16,7 +18,8 @@ const RECONNECT_BASE_MS = 4000;
 const RECONNECT_MAX_MS = 30000;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const MAINTENANCE_CHECK_MS = 60000;
-const KEY_INIT_DELAY_MS = 5000;
+/** 等待 cmd 1001 响应同步 result 基线的上限；超时只告警，不打断连接 */
+const LOGIN_BASELINE_TIMEOUT_MS = 5000;
 const HEARTBEAT_MS = 5 * 60 * 1000;
 const QUEUE_ALERT_MAX_DEPTH = 30;
 const QUEUE_ALERT_MAX_WAIT_MS = 5000;
@@ -29,21 +32,21 @@ enum State {
   Shutdown,
 }
 
+/**
+ * 单个大区的 TCP 长连接服务：连接、串行队列与重连循环都属于实例，不跨大区共享。
+ */
 export class TCPService {
+  private readonly profile: RegionProfile;
+
+  private readonly credentials: RegionCredentials;
+  private readonly queue: SerialRequestQueue<Buffer | null>;
+
   private sender: SendPacketProcessing | null = null;
   private receiver: ReceivePacketAnalysis | null = null;
   private state: State = State.Initial;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private reconnectFailure: Error | null = null;
   private reconnectAttempts: number = 0;
-
-  private queue = new SerialRequestQueue<Buffer | null>({
-    name: 'tcp',
-    delayMs: settings.queue_delay_ms,
-    maxLength: settings.queue_max_length,
-    waitTimeoutMs: settings.queue_wait_timeout_ms,
-    onMinute: (stats) => this._onQueueMinute(stats),
-  });
 
   private lastQueueAlertAt = 0;
 
@@ -52,6 +55,18 @@ export class TCPService {
     reject: (reason?: any) => void;
   }> = [];
 
+  constructor(profile: RegionProfile, credentials: RegionCredentials) {
+    this.profile = profile;
+    this.credentials = credentials;
+    this.queue = new SerialRequestQueue<Buffer | null>({
+      name: `tcp-${profile.id}`,
+      delayMs: settings.queue_delay_ms,
+      maxLength: settings.queue_max_length,
+      waitTimeoutMs: settings.queue_wait_timeout_ms,
+      onMinute: (stats) => this._onQueueMinute(stats),
+    });
+  }
+
   // ---------- helpers ----------
 
   private _ts(): string {
@@ -59,7 +74,7 @@ export class TCPService {
   }
 
   private _log(level: 'info' | 'warn' | 'err', ...args: unknown[]): void {
-    const prefix = `[${this._ts()}]`;
+    const prefix = `[${this._ts()}] [${this.profile.id}]`;
     if (level === 'err') console.error(prefix, ...args);
     else if (level === 'warn') console.warn(prefix, ...args);
     else console.log(prefix, ...args);
@@ -80,7 +95,8 @@ export class TCPService {
 
   private _msgCallback(): ((msg: string) => void) | undefined {
     return settings.log_callbacks
-      ? (msg: string) => console.log(`[${this._ts()}] ${msg}`)
+      ? (msg: string) =>
+          console.log(`[${this._ts()}] [${this.profile.id}] ${msg}`)
       : undefined;
   }
 
@@ -133,8 +149,11 @@ export class TCPService {
     });
   }
 
+  /** 所有告警统一带上大区，便于多实例共用同一个 webhook 时区分来源 */
   private _alert(msg: string): void {
-    const task = sendTextMessage(msg);
+    const task = sendTextMessage(
+      `【${this.profile.label} (${this.profile.id})】${msg}`,
+    );
     if (!task) return;
     void task.catch((err) =>
       console.error('【飞书】告警发送失败:', (err as Error).message),
@@ -213,28 +232,27 @@ export class TCPService {
   private async _doConnect(): Promise<void> {
     this.state = State.Initial;
     const algorithms = new Algorithms();
-    const login = new Login();
+    const login = new Login(this.profile, algorithms);
 
-    this._log('info', '正在登录 TCP 服务器...');
+    this._log('info', `正在登录 ${this.profile.label} TCP 服务器...`);
 
-    const { reader, writer } = await login.login(
-      settings.service_account_id,
-      settings.service_account_password,
+    const socket = await login.login(
+      this.credentials.accountId,
+      this.credentials.password,
     );
 
     const msgCb = this._msgCallback();
 
     this.sender = new SendPacketProcessing(
       algorithms,
-      writer,
-      settings.service_account_id,
+      socket,
+      this.credentials.accountId,
       msgCb,
     );
 
     this.receiver = new ReceivePacketAnalysis({
       algorithms,
-      tcpSocket: reader,
-      userId: settings.service_account_id,
+      tcpSocket: socket,
       messageCallback: msgCb,
       disconnectCallback: () => {
         this._log('warn', '【系统】网络连接已断开，准备重连...');
@@ -245,7 +263,16 @@ export class TCPService {
       ignoredCmdIds: settings.ignored_cmd_ids,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, KEY_INIT_DELAY_MS));
+    // login() 已发出登录包；等它的响应既让接收侧把 result 基线刷成服务端值，
+    // 也证明服务端已受理登录
+    const loginResponse = await this.receiver.waitForSpecificData(
+      CMD_LOGIN_IN,
+      LOGIN_BASELINE_TIMEOUT_MS,
+    );
+
+    if (!loginResponse) {
+      this._log('warn', '【登录】未收到 cmd 1001 响应，result 基线仍未同步');
+    }
 
     if (this.state !== State.Initial) {
       this._cleanup();
@@ -258,7 +285,7 @@ export class TCPService {
     }
 
     this.state = State.Ready;
-    this._log('info', 'TCP 初始化完成，密钥就绪！');
+    this._log('info', 'TCP 初始化完成，result 序列号基线就绪！');
     this._notifyReady();
     this._startHeartbeat();
   }
@@ -275,7 +302,7 @@ export class TCPService {
       }
 
       try {
-        const pkt2157 = buildPacket(2157, 1, settings.service_account_id);
+        const pkt2157 = buildPacket(2157, 1, this.credentials.accountId);
         await this.sendAndReceive(pkt2157);
         this._log('info', '【心跳】2157 保持连接成功');
       } catch (error) {
@@ -375,7 +402,7 @@ export class TCPService {
 
   private async _checkMaintenance(): Promise<boolean> {
     try {
-      const noticeList = await getUnityNoticeInfo();
+      const noticeList = await getUnityNoticeInfo(this.profile.noticeUrl);
       const result = parseUnityNotice(noticeList);
       if (result.status === '维护') {
         this._log('warn', '【重连】服务器维护中，等待...');
@@ -477,4 +504,7 @@ export class TCPService {
   }
 }
 
-export const tcpService = new TCPService();
+export const tcpService = new TCPService(
+  settings.regionProfile,
+  settings.account,
+);

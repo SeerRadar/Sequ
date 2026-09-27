@@ -19,7 +19,7 @@ export function connectSocket(
     const connectTimeout = setTimeout(() => {
       socket.removeListener('error', onError);
       socket.destroy();
-      reject(new Error('TCP 连接超时 (10s)'));
+      reject(new Error(`TCP 连接超时 (${timeoutMs}ms)`));
     }, timeoutMs);
 
     socket.connect(port, ip, () => {

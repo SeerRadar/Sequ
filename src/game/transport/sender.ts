@@ -8,7 +8,7 @@ import {
   parsePacket,
   validateHex,
 } from '../packet/protocol.js';
-import net from 'net';
+import type net from 'net';
 
 type MessageCallback = (message: string) => void;
 

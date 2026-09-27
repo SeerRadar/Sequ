@@ -1,13 +1,16 @@
 import axios from 'axios';
 
+/** 维护公告项。type 在大陆服是数字、台服是字符串，统一按数值比较 */
 export interface UnityNoticeItem {
-  type: number;
+  type: number | string;
   text?: string;
 }
 
-/** 维护公告（type=3 视为维护中） */
+/** 公告中 type=3 表示维护（AnnouncementType.Maintain） */
+const NOTICE_TYPE_MAINTAIN = 3;
+
 export async function getUnityNoticeInfo(
-  url: string = 'http://unity-notice.61.com/unity_notice/',
+  url: string,
 ): Promise<UnityNoticeItem[]> {
   const { data } = await axios.get<UnityNoticeItem[]>(url + `?t=${Date.now()}`);
   if (!Array.isArray(data)) {
@@ -20,7 +23,9 @@ export function parseUnityNotice(noticeList: UnityNoticeItem[]): {
   status: '维护' | '开服';
   info: string;
 } {
-  const maintenanceNotice = noticeList.find((n) => n.type === 3);
+  const maintenanceNotice = noticeList.find(
+    (n) => Number(n.type) === NOTICE_TYPE_MAINTAIN,
+  );
 
   if (maintenanceNotice) {
     return {

@@ -4,7 +4,9 @@ import { getPeakRankInfo, getVoteInfo } from './controllers/peak.controller.js';
 import {
   getAutoCardRankInfo,
   getBookAndAchieveRankInfo,
+  getXuanWuRankInfo,
 } from './controllers/rank.controller.js';
+import { getRegion } from './controllers/region.controller.js';
 import {
   getTeamInfo,
   getUserBagPetInfo,
@@ -15,6 +17,8 @@ import { getWishInfo } from './controllers/wish.controller.js';
 import { Hono } from 'hono';
 
 const router = new Hono();
+
+router.get('/region', getRegion);
 
 router.get('/users/:account', getUserInfo);
 router.get('/users/:account/online-status', getUserOnlineStatus);
@@ -27,6 +31,7 @@ router.get('/peak/history', getPeakHistoryRecords);
 
 router.get('/rankings/book-achievement', getBookAndAchieveRankInfo);
 router.get('/rankings/auto-card', getAutoCardRankInfo);
+router.get('/rankings/xuan-wu', getXuanWuRankInfo);
 router.get('/wishes', getWishInfo);
 
 router.post('/packets/send', sendPacket);

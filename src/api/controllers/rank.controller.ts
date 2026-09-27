@@ -90,3 +90,16 @@ export const getAutoCardRankInfo = async (c: Context): Promise<Response> => {
   });
   return c.json(replyPayload);
 };
+
+export const getXuanWuRankInfo = async (c: Context): Promise<Response> => {
+  const startIdx = c.req.query('startIdx') ?? 0;
+  const endIdx = c.req.query('endIdx') ?? 99;
+
+  const replyPayload = await getNormalRankInfo({
+    key: 267,
+    subkey: 1,
+    startIdx: Number(startIdx),
+    endIdx: Number(endIdx),
+  });
+  return c.json(replyPayload);
+};

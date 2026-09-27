@@ -45,8 +45,12 @@ class BufferReader {
     this._offset += bytes;
   }
 
+  remaining(): number {
+    return this.buffer.length - this._offset;
+  }
+
   private checkRemaining(requiredBytes: number, operation: string): void {
-    const remaining = this.buffer.length - this._offset;
+    const remaining = this.remaining();
     if (remaining < requiredBytes) {
       throw new Error(
         `Buffer underflow in ${operation}: required ${requiredBytes} bytes, but only ${remaining} bytes remaining (offset: ${this._offset}, length: ${this.buffer.length})`,
