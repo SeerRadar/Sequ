@@ -1,176 +1,86 @@
-import { settings } from '../../config/config.js';
 import { PacketBuilder } from '../packet/builder.js';
-import { HEADER_SIZE } from '../packet/protocol.js';
+import { CMD_RANGE_ONLINE, parsePacket } from '../packet/protocol.js';
 import { BufferReader } from '../packet/reader.js';
-import { connectSocket } from './connect.js';
-import axios from 'axios';
+import type { GameServer, RegionProfile } from '../region.js';
+import { requestOnce } from '../transport/rawRequest.js';
+import { withGate } from './gate.js';
 
-const UNITY_IP_URL = 'https://seer-login-ip.61.com/unity-ip.txt';
-const DEFAULT_SVR = { ip: '175.24.235.221', port: 1864 };
-const CONNECT_TIMEOUT_MS = 10000;
-const SESSION_TIMEOUT_MS = 10000;
+/** cmd 106 单条服务器记录的字节数：onlineID + 人数 + IP(16) + 端口 + 好友数 */
+const SERVER_RECORD_SIZE = 30;
+const IP_FIELD_SIZE = 16;
 
-export interface ServerInfo {
-  onlineID: number;
-  userCnt: number;
-  userCntType: number;
-  ip: string;
-  port: number;
-  friends: number;
-}
-
+/**
+ * 服务器列表查询：在登录网关上用 cmd 106 RANGE_ONLINE 拉取区域扫描区间内的服务器。
+ * 该命令不需要 session。
+ */
 export class Svr {
-  async getSvrInfo(): Promise<{
-    onlineID: number;
-    ip: string;
-    port: number;
-  }> {
-    const servers = await this.getRangeServer(1800, 1900);
+  constructor(private readonly profile: RegionProfile) {}
+
+  async getSvrInfo(): Promise<GameServer> {
+    const [start, end] = this.profile.serverScanRange;
+    const servers = await this.getRangeServer(start, end);
+
     if (servers.length === 0) {
-      return {
-        onlineID: 2200,
-        ip: settings.game_server_host,
-        port: settings.game_server_port,
-      };
+      console.error(`[${this.profile.id}] 未查询到服务器，使用兜底地址`);
+      return { ...this.profile.defaultServer };
     }
-    const server = servers[Math.floor(Math.random() * servers.length)]!;
-    return {
-      onlineID: server.onlineID,
-      ip: server.ip,
-      port: server.port,
-    };
+
+    return servers[Math.floor(Math.random() * servers.length)]!;
   }
 
   private async getRangeServer(
-    start: number = 1,
-    end: number = 100,
-  ): Promise<ServerInfo[]> {
-    const socket = await this.connectToGameServer();
+    start: number,
+    end: number,
+  ): Promise<GameServer[]> {
+    return withGate(this.profile, async (socket) => {
+      const builder = new PacketBuilder()
+        .setCmdId(CMD_RANGE_ONLINE)
+        .addU32(start)
+        .addU32(end)
+        .addU32(0);
 
-    return new Promise((resolve, reject) => {
-      let done = false;
-      let buffer = Buffer.alloc(0);
+      const response = await requestOnce(
+        socket,
+        Buffer.from(builder.build(), 'hex'),
+      );
 
-      const timeout = setTimeout(() => {
-        if (done) return;
-        done = true;
-        socket.destroy();
-        reject(new Error('getRangeServer 响应超时'));
-      }, SESSION_TIMEOUT_MS);
+      const parsed = parsePacket(response);
+      if (!parsed) {
+        throw new Error('cmd 106 响应解析失败');
+      }
 
-      const onError = (err: Error) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timeout);
-        socket.destroy();
-        reject(err);
-      };
-
-      socket.on('data', (data: Buffer) => {
-        if (done) return;
-        try {
-          buffer = Buffer.concat([buffer, data]);
-
-          while (buffer.length >= HEADER_SIZE) {
-            const packetLength = buffer.readUInt32BE(0);
-
-            if (packetLength < HEADER_SIZE || packetLength > 1024 * 1024) {
-              clearTimeout(timeout);
-              done = true;
-              socket.destroy();
-              reject(new Error(`异常封包长度: ${packetLength}`));
-              return;
-            }
-
-            if (buffer.length < packetLength) break;
-
-            const raw = buffer.subarray(0, packetLength);
-            buffer = buffer.subarray(packetLength);
-
-            const body = raw.subarray(HEADER_SIZE);
-            const servers = Svr.parseRangeSvrInfo(body);
-            clearTimeout(timeout);
-            done = true;
-            socket.destroy();
-            resolve(servers);
-            return;
-          }
-        } catch (err) {
-          clearTimeout(timeout);
-          done = true;
-          socket.destroy();
-          reject(err);
-        }
-      });
-
-      socket.on('error', onError);
-
-      const builder = new PacketBuilder();
-      builder.setCmdId(106).addU32(start).addU32(end).addU32(0);
-      socket.write(Buffer.from(builder.build(), 'hex'));
+      return parseRangeSvrInfo(parsed.body, this.profile.excludedServerIds);
     });
   }
+}
 
-  private static parseRangeSvrInfo(body: Buffer): ServerInfo[] {
-    const reader = new BufferReader(body);
-    const onlineCnt = reader.readUInt32();
-    const servers: ServerInfo[] = [];
+/** 解析 cmd 106 响应体：[在线数量][onlineID, 人数, IP(16), 端口, 好友数] × N */
+function parseRangeSvrInfo(
+  body: Buffer,
+  excludedIds: readonly number[],
+): GameServer[] {
+  const reader = new BufferReader(body);
+  const onlineCnt = reader.readUInt32();
+  const servers: GameServer[] = [];
 
-    for (let i = 0; i < onlineCnt; i++) {
-      const onlineID = reader.readUInt32();
-      const userCnt = reader.readUInt32();
-      const ip = reader.readString(16);
-      const port = reader.readUInt16();
-      const friends = reader.readUInt32();
-
-      if (onlineID > 0) {
-        servers.push({
-          onlineID,
-          userCnt,
-          userCntType: Svr.computeUserCntType(userCnt),
-          ip,
-          port,
-          friends,
-        });
-      }
+  for (let i = 0; i < onlineCnt; i++) {
+    if (reader.remaining() < SERVER_RECORD_SIZE) {
+      console.error(
+        `cmd 106 响应在第 ${i + 1}/${onlineCnt} 条记录处截断，已解析 ${servers.length} 条`,
+      );
+      break;
     }
 
-    return servers;
+    const onlineID = reader.readUInt32();
+    reader.skip(4); // 人数
+    const ip = reader.readString(IP_FIELD_SIZE);
+    const port = reader.readUInt16();
+    reader.skip(4); // 好友数
+
+    if (onlineID <= 0 || excludedIds.includes(onlineID)) continue;
+
+    servers.push({ onlineID, ip, port });
   }
 
-  private static computeUserCntType(userCnt: number): number {
-    switch (userCnt) {
-      case 1:
-      case 2:
-      case 3:
-        return 1;
-      case 4:
-      case 5:
-        return 2;
-      case 6:
-        return 3;
-      default:
-        return 0;
-    }
-  }
-
-  private async connectToGameServer() {
-    const { ip, port } = await this.getGameServerIp();
-    return connectSocket(ip, port, CONNECT_TIMEOUT_MS);
-  }
-
-  private async getGameServerIp(): Promise<{ ip: string; port: number }> {
-    try {
-      const { data } = await axios.get(UNITY_IP_URL, {
-        timeout: 5000,
-      });
-
-      const ips = data.split('|');
-      const [ip, port] = ips[Math.floor(Math.random() * ips.length)].split(':');
-      return { ip, port: parseInt(port, 10) };
-    } catch (error) {
-      console.error('获取游戏服务器 IP 失败:', error);
-      return DEFAULT_SVR;
-    }
-  }
+  return servers;
 }

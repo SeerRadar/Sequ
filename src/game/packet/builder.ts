@@ -30,6 +30,14 @@ export class PacketBuilder {
   }
 
   /**
+   * 指定 result 字段。引导封包（cmd > 1000）需按序列号算法自行计算后写入
+   */
+  setResult(result: number): this {
+    this.result = result;
+    return this;
+  }
+
+  /**
    * 添加 4 字节整数到包体 (大端序)
    */
   addU32(value: number): this {
@@ -37,6 +45,29 @@ export class PacketBuilder {
     buffer.writeUInt32BE(value, 0);
     this.bodyParts.push(buffer);
     return this;
+  }
+
+  /**
+   * 添加定长字符串字段：UTF-8 写入，不足补 0，超出截断。
+   * 截断按字节进行，可能切断多字节字符，故字段值约定为 ASCII
+   */
+  addFixedString(value: string, length: number): this {
+    const buffer = Buffer.alloc(length, 0);
+    buffer.write(value, 0, 'utf8');
+    return this.addBytes(buffer);
+  }
+
+  addFixedBytes(bytes: Buffer, length: number): this {
+    const buffer = Buffer.alloc(length, 0);
+    bytes.copy(buffer, 0, 0, Math.min(bytes.length, length));
+    return this.addBytes(buffer);
+  }
+
+  /** 包体内容，供需要自行计算 result 的引导封包取用 */
+  bodyBuffer(): Buffer {
+    return this.bodyParts.length > 0
+      ? Buffer.concat(this.bodyParts)
+      : Buffer.alloc(0);
   }
 
   /**
@@ -59,13 +90,10 @@ export class PacketBuilder {
    * 构建完整数据包的十六进制字符串（供 SendPacketProcessing.sendPacket 使用）
    */
   build(): string {
-    const bodyLength = this.bodyParts.reduce(
-      (sum, part) => sum + part.length,
-      0,
-    );
+    const body = this.bodyBuffer();
 
     // 总长度 = 头部(17字节) + 包体长度
-    this.length = 17 + bodyLength;
+    this.length = 17 + body.length;
 
     const lengthBuffer = Buffer.allocUnsafe(4);
     lengthBuffer.writeUInt32BE(this.length, 0);
@@ -80,11 +108,6 @@ export class PacketBuilder {
 
     const resultBuffer = Buffer.allocUnsafe(4);
     resultBuffer.writeUInt32BE(this.result, 0);
-
-    const body =
-      this.bodyParts.length > 0
-        ? Buffer.concat(this.bodyParts)
-        : Buffer.alloc(0);
 
     const packet = Buffer.concat([
       lengthBuffer,

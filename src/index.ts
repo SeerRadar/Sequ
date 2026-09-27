@@ -1,5 +1,5 @@
 import { app } from './api/app.js';
-import { settings } from './config/config.js';
+import { describeConfigProblem, settings } from './config/config.js';
 import { tcpService } from './game/client.js';
 import { serve } from '@hono/node-server';
 
@@ -8,6 +8,15 @@ process.title = 'seer-query';
 let httpServer: ReturnType<typeof serve> | null = null;
 
 async function bootstrap() {
+  const configProblem = describeConfigProblem();
+  if (configProblem) {
+    console.error(configProblem);
+    process.exit(1);
+  }
+
+  const { id, label } = settings.regionProfile;
+  console.log(`登录目标大区: ${id} (${label})`);
+
   try {
     await tcpService.init();
 

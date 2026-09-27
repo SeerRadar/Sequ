@@ -1,21 +1,18 @@
 import { Algorithms } from '../crypto.js';
 import { getCommandName } from '../packet/commands.js';
 import {
-  CMD_KEY_INIT,
   CMD_MAINTENANCE,
-  HEADER_SIZE,
-  MAX_PACKET_SIZE,
-  MIN_PACKET_SIZE,
-  OFF_LENGTH,
   type ParsedPacket,
+  RESULT_BASELINE_CMD_IDS,
+  RESULT_ERROR_THRESHOLD,
   parsePacket,
+  takeFrame,
 } from '../packet/protocol.js';
-import net from 'net';
+import type net from 'net';
 
 export interface ReceivePacketOptions {
   algorithms: Algorithms;
   tcpSocket: net.Socket;
-  userId: number;
   messageCallback?: (msg: string) => void;
   disconnectCallback?: () => Promise<void> | void;
   /** 收到服务器维护通知时回调（剩余秒数），由连接所有者决定告警方式 */
@@ -27,7 +24,6 @@ export interface ReceivePacketOptions {
 export class ReceivePacketAnalysis {
   private algorithms: Algorithms;
   private tcpSocket: net.Socket;
-  private userid: number;
 
   private messageCallback?: (msg: string) => void;
   private disconnectCallback?: () => Promise<void> | void;
@@ -46,7 +42,6 @@ export class ReceivePacketAnalysis {
   constructor(options: ReceivePacketOptions) {
     this.algorithms = options.algorithms;
     this.tcpSocket = options.tcpSocket;
-    this.userid = options.userId;
     this.messageCallback = options.messageCallback;
     this.disconnectCallback = options.disconnectCallback;
     this.maintenanceCallback = options.maintenanceCallback;
@@ -102,35 +97,31 @@ export class ReceivePacketAnalysis {
   }
 
   private _processBuffer(): void {
-    while (this.buffer.length >= HEADER_SIZE) {
+    let frame = takeFrame(this.buffer);
+
+    while (frame.status === 'ok') {
+      this.buffer = frame.rest;
+
       try {
-        const packetLength = this.buffer.readUInt32BE(OFF_LENGTH);
+        const packet = parsePacket(frame.raw);
 
-        if (packetLength < MIN_PACKET_SIZE || packetLength > MAX_PACKET_SIZE) {
-          this._message(`接收|错误|异常封包长度: ${packetLength}`);
-          this.buffer = Buffer.alloc(0);
-          break;
-        }
-
-        if (this.buffer.length < packetLength) {
-          break;
-        }
-
-        const raw = this.buffer.subarray(0, packetLength);
-        this.buffer = this.buffer.subarray(packetLength);
-
-        const packet = parsePacket(raw);
-        if (!packet) {
+        if (packet) {
+          this._handlePacket(packet);
+        } else {
           this._message('接收|错误|封包解析失败');
-          continue;
         }
-
-        this._handlePacket(packet);
       } catch (error) {
         this._message(`接收|错误|${(error as Error).message}`);
         this.buffer = Buffer.alloc(0);
-        break;
+        return;
       }
+
+      frame = takeFrame(this.buffer);
+    }
+
+    if (frame.status === 'invalid') {
+      this._message(`接收|错误|异常封包长度: ${frame.length}`);
+      this.buffer = Buffer.alloc(0);
     }
   }
 
@@ -141,15 +132,23 @@ export class ReceivePacketAnalysis {
 
     this._logReceive(packet);
 
+    // 先同步基线再唤醒等待者：等待这些命令的调用方拿到响应时 result 已是新基线
+    if (RESULT_BASELINE_CMD_IDS.includes(packet.cmdId)) {
+      this._handleResultBaseline(packet);
+    }
+
+    // result 超阈值即错误包，客户端在此走错误回调；这里只记录，命令等待者照常唤醒
+    if (packet.result > RESULT_ERROR_THRESHOLD) {
+      this._message(
+        `接收|错误|cmd ${packet.cmdId} 返回错误码 ${packet.result}`,
+      );
+    }
+
     const queue = this.waiters.get(packet.cmdId);
     if (queue && queue.length > 0) {
       const resolve = queue.shift();
       if (queue.length === 0) this.waiters.delete(packet.cmdId);
       if (resolve) resolve(packet.raw);
-    }
-
-    if (packet.cmdId === CMD_KEY_INIT) {
-      this._handleKeyInit(packet);
     }
   }
 
@@ -168,11 +167,9 @@ export class ReceivePacketAnalysis {
     }
   }
 
-  private _handleKeyInit(packet: ParsedPacket): void {
-    this.algorithms.InitKey(packet.raw, this.userid);
-    this._message('初始化|成功|密钥初始化完成');
+  private _handleResultBaseline(packet: ParsedPacket): void {
     this.algorithms.setResult(packet.result);
-    this._message(`初始化|更新|Result: ${packet.result}`);
+    this._message(`基线更新|cmd=${packet.cmdId}|result=${packet.result}`);
   }
 
   private _handleServerMaintenance(packet: ParsedPacket): void {
